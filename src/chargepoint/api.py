@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from . import store
-from .charger import clear_charger_caches, set_desired_lock
+from .charger import clear_charger_caches, connected_chargers, set_desired_lock
 from .config import STATIC_DIR
 
 app = FastAPI(title="simple-ocpp")
@@ -152,6 +152,18 @@ async def update_charger(cp_id: str, body: ChargerUpdate) -> store.ChargerJSON:
     s.lock_on_plugin = body.lock_on_plugin
   store.save_registry()
   return s.to_json()
+
+
+@app.delete("/api/chargers/{cp_id}")
+async def delete_charger(cp_id: str, delete_history: bool = False) -> dict[str, bool]:
+  """Removes an offline charger, optionally with its sessions and energy history."""
+  if cp_id in connected_chargers:
+    raise HTTPException(409, "The charger is connected; it would reappear at once")
+  try:
+    store.delete_charger(cp_id, delete_history)
+  except KeyError:
+    raise HTTPException(404, "Unknown charger")
+  return {"ok": True}
 
 
 async def _apply_lock(cp_id: str, locked: bool) -> LockResult | JSONResponse:

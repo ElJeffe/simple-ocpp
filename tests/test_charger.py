@@ -245,3 +245,21 @@ async def test_power_only_meter_values_are_not_logged(charge_point):
       "timestamp": "t", "sampled_value": [{"value": "100", "measurand": "Power.Active.Import"}]}])
   with store.db() as conn:
     assert conn.execute("SELECT COUNT(*) FROM energy_readings").fetchone()[0] == 0
+
+
+async def test_start_and_boot_close_sessions_without_a_stop(charge_point, monkeypatch):
+  async def nothing():
+    pass
+
+  monkeypatch.setattr(charge_point, "apply_settings_after_boot", nothing)
+  store.add_tag("abc")
+  first = await charge_point.on_start_transaction(
+      connector_id=1, id_tag="abc", meter_start=1000, timestamp="2026-11-01T10:00:00Z")
+  second = await charge_point.on_start_transaction(
+      connector_id=1, id_tag="abc", meter_start=3000, timestamp="2026-11-01T14:00:00Z")
+  by_id = {s["id"]: s for s in store.list_sessions()}
+  assert by_id[first.transaction_id]["stop_reason"] == store.NO_STOP_RECEIVED
+  assert by_id[first.transaction_id]["energy_wh"] == 2000
+  assert by_id[second.transaction_id]["stopped_at"] is None
+  await charge_point.on_boot_notification(charge_point_vendor="V", charge_point_model="M")
+  assert store.list_sessions()[0]["stop_reason"] == store.NO_STOP_RECEIVED

@@ -440,3 +440,48 @@ def test_list_sessions_pages_and_period_filter():
   assert [s["id"] for s in store.list_sessions(limit=2, offset=2)] == [3, 2]
   assert [s["id"] for s in store.list_sessions(limit=2, offset=4)] == [1]
   assert store.count_sessions("B") == 0
+
+
+# --- Removing chargers and closing sessions without a stop ---
+
+
+def test_delete_charger_keeps_or_deletes_history():
+  for cp in ("A", "B"):
+    store.get_state(cp)
+    store.start_session(cp, 1, "a", 0, "2026-11-01T10:00:00Z", True)
+    store.record_energy(cp, 1, 1000, day("2026-11-01"))
+    store.set_initial_energy(cp, day("2026-10-01"), 500)
+  store.delete_charger("A")
+  store.delete_charger("B", delete_history=True)
+  assert store.registry == {}
+  store.load_registry()
+  assert store.registry == {}
+  assert [s["charger_id"] for s in store.list_sessions()] == ["A"]
+  assert set(store.initial_energy()) == {"A"}
+  assert store.energy_usage("day", "B") == []
+  with pytest.raises(KeyError):
+    store.delete_charger("A")
+
+
+def test_new_session_closes_open_one_on_same_connector():
+  old = store.start_session("A", 1, "a", 1000, "2026-11-01T10:00:00Z", True)
+  other = store.start_session("A", 2, "a", 0, "2026-11-01T10:00:00Z", True)
+  assert store.close_open_sessions("A", "2026-11-02T08:00:00Z", 1, 4000) == [old]
+  by_id = {s["id"]: s for s in store.list_sessions()}
+  assert by_id[old]["energy_wh"] == 3000
+  assert by_id[old]["stop_reason"] == store.NO_STOP_RECEIVED
+  assert by_id[old]["stopped_at"] == "2026-11-02T08:00:00Z"
+  assert by_id[other]["stopped_at"] is None
+  assert store.close_open_sessions("A", "t", 1, 5000) == []  # nothing left open there
+
+
+def test_boot_close_uses_last_meter_reading_and_real_stop_wins():
+  tid = store.start_session("A", 1, "a", 1000, "2026-11-01T10:00:00Z", True)
+  store.record_energy("A", 1, 2500, day("2026-11-01"))
+  no_reading = store.start_session("A", 2, "a", 700, "2026-11-01T10:00:00Z", True)
+  assert store.close_open_sessions("A", "2026-11-01T12:00:00Z") == [tid, no_reading]
+  by_id = {s["id"]: s for s in store.list_sessions()}
+  assert by_id[tid]["energy_wh"] == 1500 and by_id[no_reading]["energy_wh"] == 0
+  store.stop_session("A", tid, 2600, "2026-11-01T11:59:00Z", "Reboot")  # queued stop arrives
+  s = store.list_sessions()[-1]
+  assert (s["energy_wh"], s["stop_reason"]) == (1600, "Reboot")

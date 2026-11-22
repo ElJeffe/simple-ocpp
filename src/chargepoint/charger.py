@@ -22,6 +22,7 @@ from .store import (
     ConnectorInfo,
     LockConfig,
     get_state,
+    close_open_sessions,
     now_iso,
     record_energy,
     save_registry,
@@ -98,6 +99,9 @@ class ChargePoint(cp):
     self.state.model = charge_point_model
     self.touch()
     save_registry()
+    # A reboot ends any session; queued StopTransactions may still follow.
+    if closed := close_open_sessions(self.id, now_iso()):
+      logging.warning(f"[{self.id}] Rebooted; closed sessions without a stop: {closed}")
 
     asyncio.create_task(self.apply_settings_after_boot())
 
@@ -208,6 +212,11 @@ class ChargePoint(cp):
     self.record_rfid(id_tag)
 
     record_energy(self.id, connector_id, meter_start)
+    if closed := close_open_sessions(self.id, timestamp, connector_id, meter_start):
+      logging.warning(
+          f"[{self.id}] New session on connector {connector_id}; closed"
+          f" sessions without a stop: {closed}"
+      )
     info = id_tag_info(id_tag)
     status = info.status
     transaction_id = start_session(

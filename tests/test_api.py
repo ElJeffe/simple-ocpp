@@ -238,3 +238,17 @@ async def test_sessions_paging_and_filter(client):
   r = await client.get("/api/sessions", params={"since": "2026-11-10T00:00:00"})
   assert r.status_code == 422 and "time zone" in r.json()["detail"]
   assert (await client.get("/api/sessions", params={"offset": -1})).status_code == 422
+
+
+async def test_delete_charger(client, monkeypatch):
+  from chargepoint import charger
+  store.get_state("CP_1")
+  store.start_session("CP_1", 1, "a", 0, "t", True)
+  monkeypatch.setitem(charger.connected_chargers, "CP_1", object())
+  assert (await client.delete("/api/chargers/CP_1")).status_code == 409
+  monkeypatch.delitem(charger.connected_chargers, "CP_1")
+  r = await client.delete("/api/chargers/CP_1", params={"delete_history": "true"})
+  assert r.json() == {"ok": True}
+  assert (await client.get("/api/chargers")).json() == []
+  assert (await client.get("/api/sessions")).json() == []
+  assert (await client.delete("/api/chargers/CP_1")).status_code == 404

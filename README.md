@@ -82,9 +82,10 @@ Open `http://<server-address>:8090`. The navigation bar at the top has five page
   - **Lock / Unlock**: changes the cable lock. Unlock also releases a cable that is currently held.
   - **Lock cable when plugged in**: when ticked, the cable is locked each time one is plugged in and each time the charger connects. Untick it for chargers or simulators that don't support changing their configuration.
   - **Last RFID**: the last card presented. Click **Register** next to an unknown card to allow it.
+  - **Remove charger** (offline chargers only): removes the charger, either keeping its sessions and energy history (they still count in the totals) or deleting them.
 - **Tags**: the registered cards. Rename, authorize, block or remove them, and pick each card's group. Below that, add and delete groups. Deleting a group leaves its cards without a group.
 - **Energy**: energy used per day (one month at a time), per month (one fiscal year) or per fiscal year, for all chargers or one. Hover a bar for its value, or open **Show as table**.
-- **Sessions**: 20 sessions per page, newest first, with a period filter (today, last 7 days, this month, last month, this year, or a custom range).
+- **Sessions**: 20 sessions per page, newest first, with a period filter (today, last 7 days, this month, last month, this year, or a custom range). A session whose stop never arrived (for example because the charger rebooted) is ended automatically when a new session starts on that connector or the charger boots. It is shown as "no stop received", with estimated energy. If the stop still arrives later, it replaces the estimate.
 - **Settings**: see below.
 
 The pages refresh every 3 seconds.

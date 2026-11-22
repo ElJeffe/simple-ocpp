@@ -13,6 +13,19 @@
   <span id="updated"></span>
 </header>
 <main id="list"></main>
+<dialog id="remove-dialog">
+  <form method="dialog">
+    <h2>Remove charger <span id="remove-name"></span>?</h2>
+    <p>It disappears from the Chargers page. If it connects again, it comes back as a new charger.</p>
+    <p>Its charge sessions and energy history can be kept, so they still count in the Sessions and Energy
+      pages, or deleted.</p>
+    <div class="dialog-actions">
+      <button value="cancel" class="secondary">Cancel</button>
+      <button value="keep" class="secondary">Remove, keep history</button>
+      <button value="delete" class="danger-solid">Remove and delete history</button>
+    </div>
+  </form>
+</dialog>
 <script src="/app.js"></script>
 </body>
 </html>

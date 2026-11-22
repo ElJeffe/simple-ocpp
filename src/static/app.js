@@ -14,6 +14,7 @@ const STATUS_CLASS = {
 let tags = [];               // registered RFID tags from the server
 let groups = [];             // tag groups from the server
 const SESSION_LIMIT = 20;    // sessions per page
+const NO_STOP_RECEIVED = "NoStopReceived";  // closed by the server; see store.py
 const findTag = id => tags.find(t => t.id_tag.toUpperCase() === String(id).toUpperCase());
 const pending = new Set();   // charger ids with a request in flight
 const messages = {};         // last request result per charger
@@ -133,6 +134,9 @@ function duration(fromIso, toIso) {
 function sessionStatus(s) {
   if (!s.accepted) return `<span class="pill bad">Refused</span>`;
   if (s.stopped_at == null) return `<span class="pill ok">Charging</span>`;
+  if (s.stop_reason === NO_STOP_RECEIVED) {
+    return `<span class="pill idle">Ended</span> <span class="sub">no stop received; energy estimated</span>`;
+  }
   const notes = s.stop_reason ? [esc(s.stop_reason)] : [];
   if (s.stop_id_tag && s.stop_id_tag.toUpperCase() !== s.id_tag.toUpperCase()) {
     notes.push(`stopped by ${esc(findTag(s.stop_id_tag)?.name || s.stop_id_tag)}`);
@@ -164,7 +168,7 @@ function renderSessions(sessions, chargers) {
         <td>${esc(new Date(s.started_at).toLocaleString())}</td>
         <td>${esc(s.charger_id)} <span class="sub">#${esc(s.connector_id)}</span></td>
         <td>${name ? `<span class="tagname">${esc(name)}</span> ` : ""}<code class="rfid">${esc(s.id_tag || "—")}</code></td>
-        <td class="num">${s.accepted ? duration(s.started_at, s.stopped_at) : "—"}</td>
+        <td class="num">${s.accepted && s.stop_reason !== NO_STOP_RECEIVED ? duration(s.started_at, s.stopped_at) : "—"}</td>
         <td class="num">${sessionEnergy(s, chargers)}</td>
         <td>${sessionStatus(s)}</td>
       </tr>`;
@@ -262,6 +266,8 @@ function card(c) {
       Lock cable when plugged in
     </label>
     <div class="msg">${esc(msg)}</div>
+    ${c.connected ? "" : `<div class="remove-row">
+      <button class="small danger" data-remove="${esc(c.id)}">Remove charger</button></div>`}
   </section>`;
 }
 
@@ -328,6 +334,28 @@ $("list")?.addEventListener("click", async e => {
     refresh();
     setTimeout(() => { delete messages[id]; }, 10000);
   }
+});
+
+// Removing an offline charger: the dialog asks whether to keep its history.
+$("list")?.addEventListener("click", e => {
+  const btn = e.target.closest("button[data-remove]");
+  if (!btn) return;
+  const dialog = $("remove-dialog");
+  dialog.dataset.charger = btn.dataset.remove;
+  $("remove-name").textContent = btn.dataset.remove;
+  dialog.showModal();
+});
+
+$("remove-dialog")?.addEventListener("close", async e => {
+  const dialog = e.target, choice = dialog.returnValue;
+  if (choice !== "keep" && choice !== "delete") return;
+  const id = dialog.dataset.charger;
+  try {
+    await api("DELETE", `/api/chargers/${encodeURIComponent(id)}?delete_history=${choice === "delete"}`);
+  } catch (err) {
+    alert("Not removed: " + err.message);
+  }
+  refresh();
 });
 
 $("list")?.addEventListener("change", async e => {

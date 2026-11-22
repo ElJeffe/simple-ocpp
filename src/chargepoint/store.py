@@ -263,6 +263,23 @@ def get_state(cp_id: str) -> ChargerState:
   return registry[cp_id]
 
 
+def delete_charger(cp_id: str, delete_history: bool = False) -> None:
+  """Forgets a charger. Raises KeyError if unknown.
+
+  With delete_history, its charge sessions, energy readings and initial
+  energy are deleted too; otherwise they stay and still count in totals.
+  """
+  if cp_id not in registry:
+    raise KeyError(cp_id)
+  with db() as conn:  # one transaction
+    conn.execute("DELETE FROM chargers WHERE id = ?", (cp_id,))
+    if delete_history:
+      for table in ("sessions", "energy_readings", "initial_energy"):
+        conn.execute(f"DELETE FROM {table} WHERE charger_id = ?", (cp_id,))
+  del registry[cp_id]
+  logging.info(f"Removed charger {cp_id}" + (" and its history" if delete_history else ""))
+
+
 # --- RFID tags --------------------------------------------------------------
 
 # OCPP id tags are case-insensitive, so they are keyed in upper case.
@@ -766,3 +783,43 @@ def set_fiscal_year_start(month: int, day: int) -> None:
   if not 1 <= month <= 12 or not 1 <= day <= calendar.monthrange(2001, month)[1]:
     raise ValueError(f"{day}/{month} is not a date that exists every year")
   set_setting("fiscal_year_start", {"month": month, "day": day})
+
+
+# Stop reason for sessions closed by the server because the charger never
+# sent StopTransaction; their stop time and meter reading are estimates.
+NO_STOP_RECEIVED = "NoStopReceived"
+
+
+def close_open_sessions(
+    charger_id: str, stopped_at: str, connector_id: int | None = None,
+    meter_wh: float | None = None,
+) -> list[int]:
+  """Ends sessions that never got a StopTransaction. Returns their ids.
+
+  Used when a new session starts on the same connector (meter_wh is then
+  its start reading) or when the charger boots (all its connectors; the
+  last logged meter reading is used). A StopTransaction that still arrives
+  later overwrites these estimates.
+  """
+  query = "SELECT id, connector_id, meter_start_wh FROM sessions WHERE charger_id = ? AND stopped_at IS NULL"
+  params: list[object] = [charger_id]
+  if connector_id is not None:
+    query += " AND connector_id = ?"
+    params.append(connector_id)
+  with db() as conn:
+    closed: list[int] = []
+    for row in conn.execute(query, params).fetchall():
+      meter = meter_wh
+      if meter is None:
+        last = conn.execute(
+            "SELECT energy_wh FROM energy_readings WHERE charger_id = ? AND connector_id = ?"
+            " ORDER BY day DESC LIMIT 1",
+            (charger_id, row["connector_id"]),
+        ).fetchone()
+        meter = last["energy_wh"] if last else row["meter_start_wh"]
+      conn.execute(
+          "UPDATE sessions SET meter_stop_wh = ?, stopped_at = ?, stop_reason = ? WHERE id = ?",
+          (max(meter, row["meter_start_wh"]), stopped_at, NO_STOP_RECEIVED, row["id"]),
+      )
+      closed.append(row["id"])
+  return closed

@@ -142,3 +142,13 @@ td input[type=number] { width: 9em; }
 label.inline { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
 .pager { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: -24px; padding-bottom: 40px; }
 .pager span { color: var(--muted); font-size: 13px; margin-right: auto; }
+
+/* Removing a charger */
+.remove-row { display: flex; justify-content: flex-end; }
+dialog { border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text);
+  max-width: 520px; padding: 20px 22px; }
+dialog::backdrop { background: rgb(0 0 0 / .4); }
+dialog h2 { font-size: 18px; margin: 0 0 10px; word-break: break-all; }
+dialog p { color: var(--muted); font-size: 14px; margin: 0 0 10px; }
+.dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+button.danger-solid { background: var(--bad); border-color: var(--bad); color: #fff; }
