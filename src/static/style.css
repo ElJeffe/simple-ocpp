@@ -170,3 +170,12 @@ main.login form { background: var(--card); border: 1px solid var(--border); bord
 main.login h1 { margin-bottom: 4px; }
 input[type=password] { font: inherit; font-size: 14px; padding: 6px 8px; border-radius: 6px;
   border: 1px solid var(--border); background: var(--card); color: var(--text); }
+
+/* Session in progress, on a charger card */
+.live { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; display: flex;
+  flex-direction: column; gap: 10px; background: var(--bg); }
+.live-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 14px; }
+.live-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+.live-stats div { display: flex; flex-direction: column; gap: 2px; }
+.live-stats span { color: var(--muted); font-size: 12px; }
+.live-stats b { font-size: 16px; font-weight: 600; white-space: nowrap; }

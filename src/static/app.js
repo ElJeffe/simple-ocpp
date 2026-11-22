@@ -28,6 +28,34 @@ function ago(iso) {
   return new Date(iso).toLocaleString();
 }
 
+const power = w => w >= 1000 ? `${(w / 1000).toFixed(1)} kW` : `${Math.round(w)} W`;
+
+// The sessions in progress on a charger: who, how long, how much so far.
+function liveSessions(c) {
+  const several = Object.keys(c.connectors).filter(id => id !== "0").length > 1 || c.active_sessions.length > 1;
+  return c.active_sessions.map(s => {
+    const status = c.connectors[s.connector_id]?.status;
+    const pill = !c.connected ? `<span class="pill idle">In progress</span>`
+      : status && status !== "Charging" ? `<span class="pill ${STATUS_CLASS[status] || "idle"}">${esc(status)}</span>`
+      : `<span class="pill ok">Charging</span>`;
+    const who = s.tag_name || findTag(s.id_tag)?.name;
+    const stat = (label, value) => `<div><span>${label}</span><b>${value}</b></div>`;
+    return `<div class="live">
+      <div class="live-head">${pill}
+        ${who ? `<span class="tagname">${esc(who)}</span>` : ""}<code class="rfid">${esc(s.id_tag || "—")}</code>
+        ${several ? `<span class="sub">connector ${esc(s.connector_id)}</span>` : ""}
+      </div>
+      <div class="live-stats">
+        ${stat("Duration", esc(duration(s.started_at)))}
+        ${stat("Energy", s.energy_wh == null ? "—" : esc(kwh(s.energy_wh)))}
+        ${s.cost == null ? "" : stat("Cost", esc(money(s.cost, s.currency)))}
+        ${stat("Power", s.power_w == null ? "—" : esc(power(s.power_w)))}
+      </div>
+      ${c.connected ? "" : `<div class="sub">The charger is offline; energy and power are unknown until it reconnects.</div>`}
+    </div>`;
+  }).join("");
+}
+
 function connectorRows(c) {
   const ids = Object.keys(c.connectors).filter(id => id !== "0");
   const rows = (ids.length ? ids : Object.keys(c.connectors)).map(id => {
@@ -38,7 +66,7 @@ function connectorRows(c) {
       ? `<span class="pill ${STATUS_CLASS[k.status] || "idle"}">${esc(k.status)}</span>`
       : `<span class="sub">status unknown</span>`;
     const meter = [];
-    if (k.power_w != null) meter.push(k.power_w >= 1000 ? `${(k.power_w / 1000).toFixed(1)} kW` : `${Math.round(k.power_w)} W`);
+    if (k.power_w != null) meter.push(power(k.power_w));
     if (k.energy_wh != null) meter.push(`${(k.energy_wh / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })} kWh total`);
     const meterLine = meter.length ? `<div class="sub">${meter.join(" · ")}</div>` : "";
     return `<dt>${label}</dt><dd>${pill}${err}${meterLine}</dd>`;
@@ -264,6 +292,7 @@ function card(c) {
       <dt>Last seen</dt><dd>${ago(c.last_seen)}</dd>
       <dt>Last RFID</dt><dd>${rfidInfo(c)}</dd>
     </dl>
+    ${liveSessions(c)}
     <div class="lockrow">
       <span class="lockstate" style="color: var(${locked ? "--ok" : "--warn"})">
         ${locked ? LOCK_ICON : UNLOCK_ICON}${esc(label)}

@@ -41,6 +41,7 @@ from .sessions import (
     NO_STOP_RECEIVED,
     SessionRecord,
     SessionSummary,
+    open_sessions,
     session_summary,
     close_open_sessions,
     count_sessions,
@@ -95,7 +96,7 @@ from .tags import (
 __all__ = [
     "LOGIN_DAYS", "auth_enabled", "check_login_token", "check_password", "clear_password",
     "make_login_token", "set_password",
-    "SessionSummary", "session_summary", "Tariff", "currency", "local_day", "prices",
+    "SessionSummary", "session_summary", "open_sessions", "Tariff", "currency", "local_day", "prices",
     "set_tariffs", "tariffs", "add_tariff", "update_tariff", "remove_tariff", "set_currency",
     "NO_STOP_RECEIVED", "ChargerJSON", "ChargerState", "ConnectorInfo", "EnergyPeriod",
     "EnergyUsage", "GroupRecord", "InitialEnergy", "LockConfig", "NetworkSettings",

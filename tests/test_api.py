@@ -383,3 +383,24 @@ async def test_energy_csv(client):
   assert r.text.lstrip("﻿").splitlines() == ["Month,Energy (kWh),Cost (€)", "2026-01,2.000,1.00"]
   r = await client.get("/api/energy", params={"period": "year"})
   assert r.json() == [{"period": "2026", "energy_wh": 3000, "cost": 1.5}]
+
+
+async def test_chargers_include_live_sessions(client):
+  store.add_tariff(__import__("datetime").date(2026, 1, 1), 0.30)
+  store.add_tag("card1", "Car")
+  online = store.get_state("CP_ON")
+  online.connected = True
+  online.connectors = {1: {"status": "Charging", "energy_wh": 12_500, "power_w": 7200}}
+  store.get_state("CP_OFF")
+  tid = store.start_session("CP_ON", 1, "card1", 10_000, "2026-11-22T08:00:00Z", True)
+  store.start_session("CP_OFF", 1, "card1", 500, "2026-11-22T08:00:00Z", True)
+  done = store.start_session("CP_ON", 1, "card1", 0, "2026-11-21T08:00:00Z", True)
+  store.stop_session("CP_ON", done, 10_000, "2026-11-21T09:00:00Z", "Local")
+
+  chargers = {c["id"]: c for c in (await client.get("/api/chargers")).json()}
+  [live] = chargers["CP_ON"]["active_sessions"]
+  assert (live["id"], live["tag_name"], live["connector_id"]) == (tid, "Car", 1)
+  assert (live["energy_wh"], live["power_w"], live["currency"]) == (2500, 7200, "€")
+  assert live["cost"] == pytest.approx(0.75)
+  [offline] = chargers["CP_OFF"]["active_sessions"]
+  assert (offline["energy_wh"], offline["cost"], offline["power_w"]) == (None, None, None)

@@ -1,6 +1,7 @@
 """Chargers: list, settings, removal and the cable lock."""
 
 import asyncio
+from typing import TypedDict
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
@@ -23,9 +24,56 @@ class LockResult(BaseModel):
   message: str
 
 
+class ActiveSession(TypedDict):
+  """A session in progress, with what it has used so far."""
+
+  id: int
+  connector_id: int
+  id_tag: str
+  tag_name: str
+  started_at: str
+  energy_wh: float | None  # live meter minus start reading; None if unknown
+  cost: float | None  # energy so far at the price of the start day
+  power_w: float | None  # current power, if the charger reports it
+  currency: str
+
+
+class ChargerOut(store.ChargerJSON):
+  active_sessions: list[ActiveSession]
+
+
+def active_sessions(s: store.ChargerState, found: list[store.SessionRecord]) -> list[ActiveSession]:
+  price_list, currency = store.prices(), store.currency()
+  result: list[ActiveSession] = []
+  for session in found:
+    none = store.ConnectorInfo()
+    connector = s.connectors.get(session["connector_id"], none) if s.connected else none
+    meter = connector.get("energy_wh")
+    energy = None if meter is None else max(0.0, meter - session["meter_start_wh"])
+    result.append({
+        "id": session["id"],
+        "connector_id": session["connector_id"],
+        "id_tag": session["id_tag"],
+        "tag_name": session["tag_name"],
+        "started_at": session["started_at"],
+        "energy_wh": energy,
+        "cost": price_list.cost(energy, store.local_day(session["started_at"])),
+        "power_w": connector.get("power_w"),
+        "currency": currency,
+    })
+  return result
+
+
 @router.get("/api/chargers")
-async def list_chargers() -> list[store.ChargerJSON]:
-  return [s.to_json() for s in sorted(store.registry.values(), key=lambda s: s.id)]
+async def list_chargers() -> list[ChargerOut]:
+  """All chargers, with any sessions in progress."""
+  by_charger: dict[str, list[store.SessionRecord]] = {}
+  for session in store.open_sessions():
+    by_charger.setdefault(session["charger_id"], []).append(session)
+  return [
+      {**s.to_json(), "active_sessions": active_sessions(s, by_charger.get(s.id, []))}
+      for s in sorted(store.registry.values(), key=lambda s: s.id)
+  ]
 
 
 @router.post("/api/chargers/{cp_id}")

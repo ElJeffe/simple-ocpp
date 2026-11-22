@@ -139,6 +139,16 @@ def session_record(row: sqlite3.Row, price_list: Prices) -> SessionRecord:
   }
 
 
+def open_sessions() -> list[SessionRecord]:
+  """Accepted sessions that haven't ended yet, oldest first."""
+  with db() as conn:
+    rows = conn.execute(
+        "SELECT * FROM sessions WHERE stopped_at IS NULL AND accepted = 1 ORDER BY id"
+    ).fetchall()
+  price_list = prices()
+  return [session_record(row, price_list) for row in rows]
+
+
 def session_summary(
     charger_id: str | None = None, since: datetime | None = None,
     until: datetime | None = None,

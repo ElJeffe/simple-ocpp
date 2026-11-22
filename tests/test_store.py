@@ -579,3 +579,12 @@ def test_add_update_remove_tariff():
   assert store.tariffs() == [{"valid_from": "2026-08-01", "price": 0.35}]
   with pytest.raises(KeyError):
     store.remove_tariff(day("2026-01-01"))
+
+
+def test_open_sessions_are_accepted_unfinished_ones():
+  a = store.start_session("A", 1, "a", 0, "2026-11-01T10:00:00Z", True)
+  done = store.start_session("A", 2, "a", 0, "2026-11-01T10:00:00Z", True)
+  store.stop_session("A", done, 100, "2026-11-01T11:00:00Z", "Local")
+  store.start_session("B", 1, "x", 0, "2026-11-01T10:00:00Z", False)  # refused
+  b = store.start_session("B", 2, "a", 0, "2026-11-01T12:00:00Z", True)
+  assert [s["id"] for s in store.open_sessions()] == [a, b]
