@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Energy</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/common.js"></script>
+</head>
+<body>
+<header>
+  <h1>Energy</h1>
+  <span id="updated"></span>
+</header>
+<div id="energy">
+  <div class="energy-card">
+    <div class="filters">
+      <select id="energy-charger" aria-label="Charger"><option value="">All chargers</option></select>
+      <div class="seg" role="group" aria-label="Period">
+        <button data-period="day" aria-pressed="true">Days</button>
+        <button data-period="month" aria-pressed="false">Months</button>
+        <button data-period="year" aria-pressed="false">Years</button>
+      </div>
+      <div class="nav">
+        <button class="small secondary" data-energy-nav="-1" aria-label="Previous">‹</button>
+        <span id="energy-range"></span>
+        <button class="small secondary" data-energy-nav="1" aria-label="Next">›</button>
+      </div>
+    </div>
+    <div class="energy-total" id="energy-total"></div>
+    <div id="energy-chart"><div class="tooltip" id="energy-tip"></div><div id="energy-svg"></div></div>
+    <details class="table-view"><summary>Show as table</summary><div id="energy-table"></div></details>
+  </div>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

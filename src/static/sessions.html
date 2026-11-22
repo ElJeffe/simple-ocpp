@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sessions</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/common.js"></script>
+</head>
+<body>
+<header>
+  <h1>Charge sessions</h1>
+  <span id="updated"></span>
+</header>
+<div class="page-body">
+  <div class="filters">
+    <label class="inline">Period
+      <select id="session-period">
+        <option value="all">All time</option>
+        <option value="today">Today</option>
+        <option value="week">Last 7 days</option>
+        <option value="month">This month</option>
+        <option value="lastmonth">Last month</option>
+        <option value="year">This year</option>
+        <option value="custom">Custom…</option>
+      </select>
+    </label>
+    <span id="session-custom" hidden>
+      <input type="date" id="session-from" aria-label="From"> –
+      <input type="date" id="session-to" aria-label="To (inclusive)">
+    </span>
+  </div>
+</div>
+<div id="sessions"></div>
+<div class="page-body pager">
+  <span id="session-count"></span>
+  <button class="small secondary" id="session-prev">‹ Previous</button>
+  <button class="small secondary" id="session-next">Next ›</button>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

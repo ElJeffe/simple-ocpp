@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/common.js"></script>
+</head>
+<body>
+<header>
+  <h1>Settings</h1>
+</header>
+
+<div class="section-head"><h2>Network</h2></div>
+<section class="panel"><div>
+  <p>Where the server listens. <code>0.0.0.0</code> means all IPv4 interfaces, <code>::</code> all
+    interfaces, <code>127.0.0.1</code> only this computer. Changes take effect when the server restarts.</p>
+  <div id="net-status"></div>
+  <form id="net-form">
+    <div class="fields">
+      <label class="field"><span>Charger connections (OCPP): address</span>
+        <input type="text" name="ocpp_host" required><small data-override="ocpp_host"></small></label>
+      <label class="field"><span>Charger connections (OCPP): port</span>
+        <input type="number" name="ocpp_port" min="1" max="65535" required><small data-override="ocpp_port"></small></label>
+    </div>
+    <div class="fields">
+      <label class="field"><span>Web interface: address</span>
+        <input type="text" name="http_host" required><small data-override="http_host"></small></label>
+      <label class="field"><span>Web interface: port</span>
+        <input type="number" name="http_port" min="1" max="65535" required><small data-override="http_port"></small></label>
+    </div>
+    <p>After changing the web interface address or port, open the page at the new address once the server
+      has restarted. If you can no longer reach it, start the server with the <code>OCPP_HTTP_HOST</code> and
+      <code>OCPP_HTTP_PORT</code> environment variables, which override these settings.</p>
+    <div class="actions-row"><button type="submit">Save</button><span class="msg" id="net-msg"></span></div>
+  </form>
+</div></section>
+
+<div class="section-head"><h2>Fiscal year</h2></div>
+<section class="panel"><div>
+  <p>The day a year starts in the energy charts' Months and Years views.</p>
+  <form id="fy-form">
+    <div class="fields">
+      <label class="field"><span>Starts on day</span>
+        <input type="number" name="day" min="1" max="31" required></label>
+      <label class="field"><span>of month</span><select name="month"></select></label>
+    </div>
+    <p id="fy-preview"></p>
+    <div class="actions-row"><button type="submit">Save</button><span class="msg" id="fy-msg"></span></div>
+  </form>
+</div></section>
+
+<div class="section-head"><h2>Initial energy</h2></div>
+<section class="panel"><div>
+  <p>If you know a charger's total energy reading from before it was connected here (on its display or in
+    its app), enter it with the date you read it. The energy used between that date and the first reading
+    this server receives is then included in the charts and totals. For chargers with more than one
+    connector, it applies to the lowest-numbered connector.</p>
+  <div id="initial"></div>
+</div></section>
+
+<script>
+const NET_FIELDS = ["ocpp_host", "ocpp_port", "http_host", "http_port"];
+let settings = null;
+
+const url = (scheme, host, port) => `${scheme}://${host.includes(":") ? `[${host}]` : host}:${port}`;
+const same = (a, b) => a && b && NET_FIELDS.every(f => a[f] === b[f]);
+
+function renderNetwork() {
+  const { saved, active, next_start, overrides } = settings.network;
+  const form = document.getElementById("net-form");
+  for (const f of NET_FIELDS) {
+    const input = form.elements[f];
+    input.value = overrides[f] ? next_start[f] : saved[f];
+    input.disabled = Boolean(overrides[f]);
+    form.querySelector(`[data-override="${f}"]`).textContent =
+      overrides[f] ? `Set by the ${overrides[f]} environment variable` : "";
+  }
+  let html = "";
+  if (active) {
+    html += `<div class="note info">Listening now: chargers on <code>${esc(url("ws", active.ocpp_host, active.ocpp_port))}</code>,
+      web interface on <code>${esc(url("http", active.http_host, active.http_port))}</code>.</div>`;
+  }
+  if (active && !same(active, next_start)) {
+    html += `<div class="note warn">Restart the server to apply: chargers on
+      <code>${esc(url("ws", next_start.ocpp_host, next_start.ocpp_port))}</code>,
+      web interface on <code>${esc(url("http", next_start.http_host, next_start.http_port))}</code>.</div>`;
+  }
+  document.getElementById("net-status").innerHTML = html;
+}
+
+document.getElementById("net-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const form = e.target, msg = document.getElementById("net-msg");
+  const body = {};
+  for (const f of NET_FIELDS) {
+    // Fields set by an environment variable keep their saved value.
+    const value = form.elements[f].disabled ? settings.network.saved[f] : form.elements[f].value.trim();
+    body[f] = f.endsWith("_port") ? Number(value) : value;
+  }
+  try {
+    settings = await api("POST", "/api/settings/network", body);
+    renderNetwork();
+    msg.textContent = "Saved.";
+  } catch (err) {
+    msg.textContent = "Not saved: " + err.message;
+  }
+});
+
+function monthName(m) {
+  return new Date(2001, m - 1, 1).toLocaleDateString(undefined, { month: "long" });
+}
+
+function renderFiscalPreview() {
+  const form = document.getElementById("fy-form");
+  const day = Number(form.elements.day.value), month = Number(form.elements.month.value);
+  const preview = document.getElementById("fy-preview");
+  if (!day || day > new Date(2001, month, 0).getDate()) {
+    preview.textContent = `${monthName(month)} has no day ${day || "?"} every year.`;
+    return;
+  }
+  const now = new Date(), y = now.getFullYear();
+  const startThisYear = new Date(y, month - 1, day);
+  const start = now >= startThisYear ? startThisYear : new Date(y - 1, month - 1, day);
+  const end = new Date(start.getFullYear() + 1, month - 1, day - 1);
+  const fmt = d => d.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+  preview.textContent = `The current fiscal year runs from ${fmt(start)} to ${fmt(end)}.`;
+}
+
+function renderFiscal() {
+  const form = document.getElementById("fy-form");
+  form.elements.month.innerHTML = Array.from({ length: 12 }, (_, i) =>
+    `<option value="${i + 1}">${esc(monthName(i + 1))}</option>`).join("");
+  form.elements.month.value = settings.fiscal_year_start.month;
+  form.elements.day.value = settings.fiscal_year_start.day;
+  renderFiscalPreview();
+}
+
+document.getElementById("fy-form").addEventListener("input", renderFiscalPreview);
+document.getElementById("fy-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const form = e.target, msg = document.getElementById("fy-msg");
+  try {
+    settings = await api("POST", "/api/settings/fiscal-year",
+      { month: Number(form.elements.month.value), day: Number(form.elements.day.value) });
+    msg.textContent = "Saved.";
+  } catch (err) {
+    msg.textContent = "Not saved: " + err.message;
+  }
+});
+
+async function renderInitial() {
+  const el = document.getElementById("initial");
+  const [chargers, initial] = await Promise.all([api("GET", "/api/chargers"), api("GET", "/api/initial-energy")]);
+  if (!chargers.length) {
+    el.innerHTML = `<div class="empty" style="padding:20px 0">No chargers have connected yet.</div>`;
+    return;
+  }
+  const todayIso = new Date().toLocaleDateString("sv");  // YYYY-MM-DD, local time
+  el.innerHTML = `<table>
+    <tr><th>Charger</th><th>Date read</th><th>Total energy (kWh)</th><th></th></tr>
+    ${chargers.map(c => {
+      const v = initial[c.id];
+      return `<tr data-charger="${esc(c.id)}">
+        <td class="tagname">${esc(c.id)}</td>
+        <td><input type="date" name="day" max="${todayIso}" value="${esc(v?.day ?? "")}" aria-label="Date read for ${esc(c.id)}"></td>
+        <td><input type="number" name="kwh" min="0" step="0.001" value="${v ? v.energy_wh / 1000 : ""}" aria-label="Total energy for ${esc(c.id)} in kWh"></td>
+        <td class="actions">
+          <span class="msg"></span>
+          <button class="small" data-initial="save">Save</button>
+          <button class="small danger" data-initial="clear" ${v ? "" : "disabled"}>Clear</button>
+        </td>
+      </tr>`;
+    }).join("")}
+  </table>`;
+}
+
+document.getElementById("initial").addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-initial]");
+  if (!btn) return;
+  const row = btn.closest("tr"), id = row.dataset.charger, msg = row.querySelector(".msg");
+  const path = `/api/chargers/${encodeURIComponent(id)}/initial-energy`;
+  try {
+    if (btn.dataset.initial === "save") {
+      const day = row.querySelector("[name=day]").value, kwhValue = row.querySelector("[name=kwh]").value;
+      if (!day || kwhValue === "") { msg.textContent = "Enter a date and a total."; return; }
+      await api("POST", path, { day, energy_wh: Number(kwhValue) * 1000 });
+    } else {
+      if (!confirm(`Clear the initial energy of ${id}?`)) return;
+      await api("DELETE", path);
+    }
+    await renderInitial();
+    document.querySelector(`tr[data-charger="${CSS.escape(id)}"] .msg`).textContent = "Saved.";
+  } catch (err) {
+    msg.textContent = "Not saved: " + err.message;
+  }
+});
+
+(async () => {
+  try {
+    settings = await api("GET", "/api/settings");
+    renderNetwork();
+    renderFiscal();
+    await renderInitial();
+  } catch (err) {
+    document.body.insertAdjacentHTML("afterbegin", `<div class="note warn">Could not load settings: ${esc(err.message)}</div>`);
+  }
+})();
+</script>
+</body>
+</html>

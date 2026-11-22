@@ -1,0 +1,240 @@
+# pyright: standard
+"""HTTP API, called in-process (no network)."""
+
+import httpx
+import pytest
+
+from chargepoint import api, store
+
+
+@pytest.fixture
+async def client():
+  transport = httpx.ASGITransport(app=api.app)
+  async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+    yield c
+
+
+@pytest.fixture
+def cache_clears(monkeypatch):
+  calls = []
+  monkeypatch.setattr(api, "clear_charger_caches", lambda: calls.append(1))
+  return calls
+
+
+async def test_index_page(client):
+  r = await client.get("/")
+  assert r.status_code == 200
+  assert "<title>Chargers</title>" in r.text
+  assert r.headers["cache-control"] == "no-store"
+
+
+async def test_list_chargers(client):
+  store.get_state("B")
+  store.get_state("A").last_rfid = "abc"
+  r = await client.get("/api/chargers")
+  assert [c["id"] for c in r.json()] == ["A", "B"]
+  assert r.json()[0]["last_rfid"] == "abc"
+
+
+async def test_register_list_update_delete_tag(client, cache_clears):
+  r = await client.post("/api/tags", json={"id_tag": " abc ", "name": "Car"})
+  assert r.status_code == 200
+  assert r.json()["id_tag"] == "abc" and r.json()["authorized"] is True
+
+  assert [t["name"] for t in (await client.get("/api/tags")).json()] == ["Car"]
+
+  r = await client.post("/api/tags/ABC", json={"name": "Van"})
+  assert r.json()["name"] == "Van"
+  assert cache_clears == []
+
+  r = await client.post("/api/tags/abc", json={"authorized": False})
+  assert r.json()["authorized"] is False
+  assert cache_clears == [1]
+
+  r = await client.delete("/api/tags/abc")
+  assert r.json() == {"ok": True}
+  assert cache_clears == [1, 1]
+  assert (await client.get("/api/tags")).json() == []
+
+
+async def test_duplicate_tag(client):
+  await client.post("/api/tags", json={"id_tag": "abc"})
+  r = await client.post("/api/tags", json={"id_tag": "ABC"})
+  assert r.status_code == 400
+  assert r.json()["detail"] == "Tag is already registered"
+
+
+@pytest.mark.parametrize("body", [
+    {},
+    {"id_tag": ""},
+    {"id_tag": "   "},
+    {"id_tag": "x" * 21},
+    {"id_tag": "abc", "bogus": 1},
+    {"id_tag": "abc", "authorized": "maybe"},
+])
+async def test_invalid_tag_body(client, body):
+  r = await client.post("/api/tags", json=body)
+  assert r.status_code == 422
+  assert store.tags == {}
+
+
+async def test_unknown_tag(client):
+  assert (await client.post("/api/tags/nope", json={"name": "x"})).status_code == 404
+  assert (await client.delete("/api/tags/nope")).status_code == 404
+
+
+async def test_lock_unknown_charger(client):
+  r = await client.post("/api/chargers/NOPE/lock")
+  assert r.status_code == 404
+
+
+async def test_lock_offline_charger_saves_choice(client):
+  store.get_state("CP_1")
+  r = await client.post("/api/chargers/CP_1/unlock")
+  assert r.status_code == 200
+  assert r.json()["ok"] is True
+  assert store.registry["CP_1"].desired_locked is False
+
+
+async def test_lock_requires_post(client):
+  store.get_state("CP_1")
+  assert (await client.get("/api/chargers/CP_1/lock")).status_code == 405
+
+
+async def test_list_sessions(client):
+  store.start_session("A", 1, "abc", 0, "t1", True)
+  store.start_session("B", 1, "abc", 0, "t2", True)
+  r = await client.get("/api/sessions")
+  assert [s["charger_id"] for s in r.json()] == ["B", "A"]
+  r = await client.get("/api/sessions", params={"charger_id": "A"})
+  assert [s["started_at"] for s in r.json()] == ["t1"]
+  assert (await client.get("/api/sessions", params={"limit": 0})).status_code == 422
+
+
+async def test_update_charger_setting(client):
+  store.get_state("CP_1")
+  r = await client.post("/api/chargers/CP_1", json={"lock_on_plugin": False})
+  assert r.status_code == 200 and r.json()["lock_on_plugin"] is False
+  store.registry.clear()
+  store.load_registry()
+  assert store.registry["CP_1"].lock_on_plugin is False
+  assert (await client.post("/api/chargers/nope", json={})).status_code == 404
+  assert (await client.post("/api/chargers/CP_1", json={"x": 1})).status_code == 422
+
+
+async def test_tag_groups(client, cache_clears):
+  assert (await client.post("/api/tags", json={"id_tag": "a", "parent_id_tag": "Family"})).status_code == 400
+  await client.post("/api/groups", json={"name": "Family"})
+  r = await client.post("/api/tags", json={"id_tag": "a", "parent_id_tag": "Family"})
+  assert r.json()["parent_id_tag"] == "Family"
+  r = await client.post("/api/tags", json={"id_tag": "b"})
+  assert r.json()["parent_id_tag"] == ""
+  r = await client.post("/api/tags/b", json={"name": "Van"})
+  assert cache_clears == []
+  r = await client.post("/api/tags/b", json={"parent_id_tag": "FAMILY"})
+  assert r.json()["parent_id_tag"] == "Family"
+  assert cache_clears == [1]  # chargers may have cached the old group
+  r = await client.post("/api/tags/b", json={"parent_id_tag": "x" * 21})
+  assert r.status_code == 422
+  r = await client.post("/api/tags/b", json={"parent_id_tag": "Nope"})
+  assert r.status_code == 400 and "Unknown group" in r.json()["detail"]
+
+
+async def test_add_list_delete_groups(client, cache_clears):
+  assert (await client.post("/api/groups", json={"name": "Work"})).status_code == 200
+  assert (await client.post("/api/groups", json={"name": "Family"})).status_code == 200
+  assert (await client.post("/api/groups", json={"name": "family"})).status_code == 400
+  assert (await client.post("/api/groups", json={"name": " "})).status_code == 422
+  assert (await client.post("/api/groups", json={"name": "x" * 21})).status_code == 422
+  assert [g["name"] for g in (await client.get("/api/groups")).json()] == ["Family", "Work"]
+
+  await client.post("/api/tags", json={"id_tag": "a", "parent_id_tag": "Family"})
+  r = await client.delete("/api/groups/Work")
+  assert r.json() == {"tags_ungrouped": 0} and cache_clears == []
+  r = await client.delete("/api/groups/FAMILY")
+  assert r.json() == {"tags_ungrouped": 1} and cache_clears == [1]
+  assert (await client.get("/api/tags")).json()[0]["parent_id_tag"] == ""
+  assert (await client.get("/api/groups")).json() == []
+  assert (await client.delete("/api/groups/Family")).status_code == 404
+
+
+async def test_energy_endpoint(client):
+  from datetime import date
+  store.record_energy("A", 1, 0, date(2026, 1, 1))
+  store.record_energy("A", 1, 2000, date(2026, 1, 2))
+  store.record_energy("B", 1, 0, date(2026, 1, 1))
+  store.record_energy("B", 1, 500, date(2026, 2, 1))
+  r = await client.get("/api/energy", params={"period": "month"})
+  assert r.json() == [{"period": "2026-01", "energy_wh": 2000},
+                      {"period": "2026-02", "energy_wh": 500}]
+  r = await client.get("/api/energy", params={"charger_id": "A"})
+  assert r.json()[-1] == {"period": "2026-01-02", "energy_wh": 2000}
+  assert (await client.get("/api/energy", params={"period": "week"})).status_code == 422
+
+
+async def test_pages_and_shared_files(client):
+  for path, text in (("/tags", "<title>Tags</title>"), ("/energy", "<title>Energy</title>"),
+                     ("/sessions", "<title>Sessions</title>"), ("/settings", "<title>Settings</title>"),
+                     ("/style.css", "--accent"), ("/common.js", "function renderNav"),
+                     ("/app.js", "async function refresh")):
+    r = await client.get(path)
+    assert r.status_code == 200 and text in r.text, path
+
+
+async def test_network_settings_api(client, monkeypatch):
+  monkeypatch.setattr(store, "active_network", store.network_settings())
+  body = {"ocpp_host": " ::1 ", "ocpp_port": 9100, "http_host": "my-host.lan", "http_port": 8100}
+  r = await client.post("/api/settings/network", json=body)
+  assert r.status_code == 200, r.text
+  net = r.json()["network"]
+  assert net["saved"] == {"ocpp_host": "::1", "ocpp_port": 9100, "http_host": "my-host.lan", "http_port": 8100}
+  assert net["active"]["ocpp_port"] == 9000  # applies after a restart
+  assert net["next_start"] == net["saved"] and net["overrides"] == {}
+  for bad in ({"ocpp_host": "not a host!"}, {"http_port": 0}, {"ocpp_port": 70000},
+              {"http_port": 9100}, {"http_host": "-bad.example"}):
+    r = await client.post("/api/settings/network", json={**body, **bad})
+    assert r.status_code == 422, bad
+  monkeypatch.setenv("OCPP_HTTP_PORT", "8888")
+  net = (await client.get("/api/settings")).json()["network"]
+  assert net["overrides"] == {"http_port": "OCPP_HTTP_PORT"}
+  assert net["next_start"]["http_port"] == 8888 and net["saved"]["http_port"] == 8100
+
+
+async def test_fiscal_year_api(client):
+  assert (await client.get("/api/settings")).json()["fiscal_year_start"] == {"month": 1, "day": 1}
+  r = await client.post("/api/settings/fiscal-year", json={"month": 8, "day": 1})
+  assert r.json()["fiscal_year_start"] == {"month": 8, "day": 1}
+  assert (await client.post("/api/settings/fiscal-year", json={"month": 2, "day": 30})).status_code == 400
+  assert (await client.post("/api/settings/fiscal-year", json={"month": 0, "day": 1})).status_code == 422
+
+
+async def test_initial_energy_api(client):
+  from datetime import date, timedelta
+  store.get_state("CP_1")
+  path = "/api/chargers/CP_1/initial-energy"
+  r = await client.post(path, json={"day": "2026-08-01", "energy_wh": 123400})
+  assert r.json() == {"day": "2026-08-01", "energy_wh": 123400}
+  assert (await client.get("/api/initial-energy")).json() == {"CP_1": r.json()}
+  tomorrow = (date.today() + timedelta(days=1)).isoformat()
+  assert (await client.post(path, json={"day": tomorrow, "energy_wh": 1})).status_code == 422
+  assert (await client.post(path, json={"day": "2026-08-01", "energy_wh": -1})).status_code == 422
+  assert (await client.post("/api/chargers/nope/initial-energy",
+                            json={"day": "2026-08-01", "energy_wh": 1})).status_code == 404
+  assert (await client.delete(path)).json() == {"ok": True}
+  assert (await client.delete(path)).status_code == 404
+
+
+async def test_sessions_paging_and_filter(client):
+  for i in range(25):
+    store.start_session("A", 1, "a", 0, f"2026-11-{i + 1:02d}T12:00:00Z", True)
+  r = await client.get("/api/sessions", params={"limit": 20})
+  assert r.headers["x-total-count"] == "25" and len(r.json()) == 20
+  r = await client.get("/api/sessions", params={"limit": 20, "offset": 20})
+  assert [s["started_at"][:10] for s in r.json()] == [f"2026-11-0{d}" for d in (5, 4, 3, 2, 1)]
+  r = await client.get("/api/sessions", params={
+      "since": "2026-11-10T00:00:00+01:00", "until": "2026-11-12T00:00:00Z"})
+  assert r.headers["x-total-count"] == "2"
+  assert [s["started_at"][:10] for s in r.json()] == ["2026-11-11", "2026-11-10"]
+  r = await client.get("/api/sessions", params={"since": "2026-11-10T00:00:00"})
+  assert r.status_code == 422 and "time zone" in r.json()["detail"]
+  assert (await client.get("/api/sessions", params={"offset": -1})).status_code == 422

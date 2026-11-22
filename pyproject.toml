@@ -1,0 +1,16 @@
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.pyright]
+include = ["src", "tests"]
+venvPath = "."
+venv = "venv"
+pythonVersion = "3.14"
+typeCheckingMode = "strict"
+# The ocpp library ships without type information; these two rules would
+# otherwise flag every use of it.
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
