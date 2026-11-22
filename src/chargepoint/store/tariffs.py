@@ -118,6 +118,16 @@ def set_currency(new_currency: str) -> None:
   set_setting("currency", new_currency)
 
 
+def price_url() -> str:
+  """A link to where the user can look up current prices; never fetched."""
+  saved = get_setting("price_url")
+  return saved if isinstance(saved, str) else ""
+
+
+def set_price_url(url: str) -> None:
+  set_setting("price_url", url)
+
+
 def local_day(timestamp: str | None) -> date | None:
   """The server-local date of an ISO timestamp from a charger, if valid."""
   if not timestamp:

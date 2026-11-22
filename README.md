@@ -212,6 +212,7 @@ Open `http://<server-address>:8090`. The navigation bar at the top has six pages
   - Add a price in cents per kWh (for example 30.5 for 30.5 c€/kWh), with the date it's valid from. Each price lasts until the next one starts, so when the price changes, add a new one and older energy keeps its old price.
   - The table lists every price, with its validity period and which one applies today. Each row can be edited (price and start date) or removed.
   - The earliest price also applies to everything before its date. A session's cost uses the price on the day it started; energy per day, month or year uses each day's own price. Without a price, no costs are shown.
+  - **Find current prices** is a saved link to the page where you look up prices. Click **Edit** next to it to change it, or clear it to remove it. Prices are not retrieved from it automatically.
   - The currency symbol or code is set at the bottom of the page.
 - **Settings**: see below.
 

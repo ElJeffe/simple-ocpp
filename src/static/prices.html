@@ -17,6 +17,16 @@
     CSV downloads. Each price is valid from its start date until the next price starts, so when the price
     changes, add a new one: earlier energy keeps its old price. The earliest price also applies to everything
     before its date. Without any price, no costs are shown.</p>
+  <form id="price-link" class="price-link" novalidate>
+    <span>Find current prices:</span>
+    <a id="price-link-url" target="_blank" rel="noopener noreferrer" hidden></a>
+    <span class="sub" id="price-link-none" hidden>no link saved</span>
+    <button type="button" class="small secondary" id="price-link-edit">Edit</button>
+    <input type="url" name="url" maxlength="2000" placeholder="https://…" aria-label="Web address for current prices" hidden>
+    <button type="submit" class="small" id="price-link-save" hidden>Save</button>
+    <button type="button" class="small secondary" id="price-link-cancel" hidden>Cancel</button>
+    <span class="msg" id="price-link-msg" role="status"></span>
+  </form>
   <form id="add-form">
     <div class="fields">
       <label class="field"><span>Valid from</span>
@@ -62,7 +72,31 @@ function dayBefore(iso) {
   return d.toLocaleDateString("sv");
 }
 
+let editingLink = false;
+
+function renderLink() {
+  const get = id => document.getElementById(id), link = get("price-link-url");
+  link.href = data.price_url || "#";
+  link.textContent = data.price_url;
+  link.hidden = editingLink || !data.price_url;
+  get("price-link-none").hidden = editingLink || Boolean(data.price_url);
+  get("price-link-edit").hidden = editingLink;
+  get("price-link").elements.url.hidden = !editingLink;
+  get("price-link-save").hidden = !editingLink;
+  get("price-link-cancel").hidden = !editingLink;
+}
+
+function editLink(on) {
+  editingLink = on;
+  document.getElementById("price-link-msg").textContent = "";
+  const input = document.getElementById("price-link").elements.url;
+  input.value = data.price_url;
+  renderLink();
+  if (on) input.focus();
+}
+
 function renderList() {
+  renderLink();
   const el = document.getElementById("price-list");
   document.querySelectorAll(".cent-unit").forEach(s => s.textContent = centUnit());
   if (!data.tariffs.length) {
@@ -158,6 +192,24 @@ document.getElementById("add-form").addEventListener("submit", async e => {
     renderList();
   } catch (err) {
     msg.textContent = "Not added: " + err.message;
+  }
+});
+
+document.getElementById("price-link-edit").addEventListener("click", () => editLink(true));
+document.getElementById("price-link-cancel").addEventListener("click", () => editLink(false));
+document.getElementById("price-link").elements.url.addEventListener("keydown", e => {
+  if (e.key === "Escape") editLink(false);
+});
+
+document.getElementById("price-link").addEventListener("submit", async e => {
+  e.preventDefault();
+  const msg = document.getElementById("price-link-msg");
+  try {
+    data = await api("POST", "/api/prices/url", { url: e.target.elements.url.value.trim() });
+    editLink(false);
+    msg.textContent = data.price_url ? "Saved." : "Link removed.";
+  } catch (err) {
+    msg.textContent = "Not saved: " + err.message;
   }
 });
 

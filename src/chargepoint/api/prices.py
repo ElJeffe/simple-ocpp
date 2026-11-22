@@ -1,9 +1,10 @@
 """Electricity prices: a price per kWh valid from a date until the next one."""
 
 from datetime import date
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .. import store
 from .models import Model
@@ -14,6 +15,7 @@ router = APIRouter()
 class Prices(BaseModel):
   currency: str
   tariffs: list[store.Tariff]  # oldest first
+  price_url: str  # where the user can look up prices; "" if none
 
 
 class PriceIn(Model):
@@ -27,8 +29,29 @@ class CurrencyIn(Model):
   currency: str = Field(min_length=1, max_length=5)
 
 
+class PriceUrlIn(Model):
+  url: str = Field(max_length=2000)  # "" removes it
+
+  @field_validator("url")
+  @classmethod
+  def web_address(cls, value: str) -> str:
+    """Only http(s), since the page shows this as a clickable link."""
+    if not value:
+      return value
+    try:
+      parts = urlsplit(value)
+      valid = parts.scheme in ("http", "https") and bool(parts.hostname)
+    except ValueError:
+      valid = False
+    if not valid or any(c.isspace() or ord(c) < 32 for c in value):
+      raise ValueError("must be a web address starting with http:// or https://")
+    return value
+
+
 def prices() -> Prices:
-  return Prices(currency=store.currency(), tariffs=store.tariffs())
+  return Prices(
+      currency=store.currency(), tariffs=store.tariffs(), price_url=store.price_url()
+  )
 
 
 @router.get("/api/prices")
@@ -63,6 +86,13 @@ async def remove_price(valid_from: date) -> Prices:
     store.remove_tariff(valid_from)
   except KeyError:
     raise HTTPException(404, "No price starts on that date")
+  return prices()
+
+
+@router.post("/api/prices/url")
+async def set_price_url(body: PriceUrlIn) -> Prices:
+  """Saves the link to where prices can be looked up. It is never fetched."""
+  store.set_price_url(body.url)
   return prices()
 
 

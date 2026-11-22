@@ -180,3 +180,11 @@ input[type=password] { font: inherit; font-size: 14px; padding: 6px 8px; border-
 .live-stats div { display: flex; flex-direction: column; gap: 2px; }
 .live-stats span { color: var(--muted); font-size: 12px; }
 .live-stats b { font-size: 16px; font-weight: 600; white-space: nowrap; }
+
+/* Prices page */
+.price-link { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px;
+  color: var(--muted); font-size: 14px; }
+.price-link input { flex: 1 1 320px; max-width: 560px; }
+input[type=url] { font: inherit; font-size: 14px; padding: 6px 8px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--card); color: var(--text); }
+#price-link-url { color: var(--accent); overflow-wrap: anywhere; }

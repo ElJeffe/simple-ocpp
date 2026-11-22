@@ -320,7 +320,7 @@ async def test_other_browsers_are_logged_out_by_a_password_change(client):
 
 
 async def test_prices_api(client):
-  assert (await client.get("/api/prices")).json() == {"currency": "€", "tariffs": []}
+  assert (await client.get("/api/prices")).json() == {"currency": "€", "tariffs": [], "price_url": ""}
   r = await client.post("/api/prices", json={"valid_from": "2026-07-01", "price": 0.3})
   r = await client.post("/api/prices", json={"valid_from": "2026-01-01", "price": 0.25})
   assert r.json()["tariffs"] == [{"valid_from": "2026-01-01", "price": 0.25},
@@ -455,3 +455,15 @@ async def test_restart_checks_ports_then_restarts(client, monkeypatch):
     assert calls == [1]
   finally:
     lifecycle.set_restart_handler(None)
+
+
+async def test_price_url(client):
+  url = "https://example.com/prices?year=2026"
+  r = await client.post("/api/prices/url", json={"url": f" {url} "})
+  assert r.status_code == 200 and r.json()["price_url"] == url
+  assert (await client.get("/api/prices")).json()["price_url"] == url
+  for bad in ("javascript:alert(1)", "data:text/html,x", "example.com", "https://", "http://a b/"):
+    assert (await client.post("/api/prices/url", json={"url": bad})).status_code == 422, bad
+  assert (await client.get("/api/prices")).json()["price_url"] == url
+  r = await client.post("/api/prices/url", json={"url": ""})
+  assert r.json()["price_url"] == ""
