@@ -4,8 +4,6 @@ import asyncio
 import contextlib
 import logging
 import signal
-import sys
-import threading
 from collections.abc import Generator
 from typing import override
 
@@ -15,7 +13,7 @@ from websockets.typing import Subprotocol
 
 from chargepoint import store
 from chargepoint.api import app
-from chargepoint.charger import connected_chargers, on_connect
+from chargepoint.charger import on_connect
 from chargepoint.config import DATA_DIR
 
 logging.basicConfig(level=logging.INFO)
@@ -34,46 +32,6 @@ class WebServer(uvicorn.Server):
   @contextlib.contextmanager
   def capture_signals(self) -> Generator[None]:
     yield
-
-
-def read_console(loop: asyncio.AbstractEventLoop, lines: asyncio.Queue[str | None]) -> None:
-  """Reads stdin in a daemon thread, so waiting for a line never blocks exit.
-
-  Uses sys.stdin.readline() rather than input(): in a terminal, input() goes
-  through GNU readline, and a thread waiting in it keeps Python from exiting.
-  """
-  while True:
-    print("\nType 'unlock <CP_ID>' to release cable:", flush=True)
-    try:
-      line = sys.stdin.readline()
-    except (OSError, ValueError):  # stdin closed or unusable
-      line = ""
-    if not line:  # end of input: no interactive terminal, e.g. as a service
-      loop.call_soon_threadsafe(lines.put_nowait, None)
-      return
-    loop.call_soon_threadsafe(lines.put_nowait, line)
-
-
-async def console_input() -> None:
-  """Simple CLI to trigger manual unlocks while the server is running."""
-  lines: asyncio.Queue[str | None] = asyncio.Queue()
-  threading.Thread(
-      target=read_console, args=(asyncio.get_running_loop(), lines), daemon=True
-  ).start()
-  while (cmd := await lines.get()) is not None:
-    parts = cmd.strip().split()
-    if len(parts) == 2 and parts[0].lower() == "unlock":
-      cp_id = parts[1]
-      if cp_id in connected_chargers:
-        try:
-          print(await connected_chargers[cp_id].manual_unlock(connector_id=1))
-        except Exception as e:  # keep the console (and server) alive
-          print(f"Unlock failed: {e!r}")
-      else:
-        print(
-            f"Charger '{cp_id}' not connected. Connected:"
-            f" {list(connected_chargers.keys())}"
-        )
 
 
 async def main() -> None:
@@ -121,7 +79,6 @@ async def main() -> None:
   )
   logging.info(f"Web interface on http://{net['http_host']}:{net['http_port']}")
   web_task = asyncio.create_task(web.serve())
-  console_task = asyncio.create_task(console_input())
 
   # Run until a signal arrives, or until the web server stops on its own
   # (for example because its port is in use).
@@ -129,7 +86,6 @@ async def main() -> None:
   await asyncio.wait({stop_task, web_task}, return_when=asyncio.FIRST_COMPLETED)
 
   logging.info("Shutting down...")
-  console_task.cancel()
   stop_task.cancel()
   web.should_exit = True
   ocpp_server.close()  # also closes charger connections ("going away")

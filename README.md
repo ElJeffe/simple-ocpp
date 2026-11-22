@@ -127,10 +127,9 @@ simple-ocpp has **no login and no encryption**:
 
 Only run it on a network you trust. Otherwise, let it listen on `127.0.0.1` only and put a reverse proxy with authentication and HTTPS in front of it.
 
-## Other ways to control it
+## HTTP API
 
-- **Console**: when started in a terminal, type `unlock <charger-id>` to release the cable on connector 1.
-- **HTTP API**: everything the web interface does goes through a JSON API. Its interactive documentation is at `http://<server-address>:8090/docs`.
+Everything the web interface does goes through a JSON API. Its interactive documentation is at `http://<server-address>:8090/docs`.
 
 ## Development
 

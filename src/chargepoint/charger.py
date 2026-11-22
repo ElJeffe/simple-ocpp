@@ -368,7 +368,7 @@ class ChargePoint(cp):
     return " ".join(results)
 
   async def manual_unlock(self, connector_id: int = 1) -> str:
-    """Emergency/maintenance command to release the locked cable."""
+    """Sends UnlockConnector to release a cable the connector is holding."""
     logging.info(
         f"[{self.id}] Sending UnlockConnector for connector {connector_id}..."
     )
