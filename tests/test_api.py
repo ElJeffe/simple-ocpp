@@ -252,3 +252,65 @@ async def test_delete_charger(client, monkeypatch):
   assert (await client.get("/api/chargers")).json() == []
   assert (await client.get("/api/sessions")).json() == []
   assert (await client.delete("/api/chargers/CP_1")).status_code == 404
+
+
+# --- Password ---
+
+
+async def test_no_password_means_no_login(client):
+  assert (await client.get("/api/auth")).json() == {"enabled": False, "logged_in": False}
+  assert (await client.get("/")).status_code == 200
+  assert (await client.get("/api/chargers")).status_code == 200
+
+
+async def test_password_protects_pages_and_api(client):
+  r = await client.post("/api/settings/password", json={"new_password": "secret123"})
+  assert r.json() == {"enabled": True, "logged_in": True}  # this browser stays logged in
+  assert (await client.get("/api/chargers")).status_code == 200
+
+  await client.post("/api/logout")
+  assert (await client.get("/api/auth")).json() == {"enabled": True, "logged_in": False}
+  r = await client.get("/sessions?x=1")
+  assert r.status_code == 303 and r.headers["location"] == "/login?next=/sessions%3Fx%3D1"
+  for path in ("/api/chargers", "/api/settings", "/openapi.json", "/docs"):
+    assert (await client.get(path)).status_code == 401, path
+  assert (await client.post("/api/tags", json={"id_tag": "x"})).status_code == 401
+  for path in ("/login", "/style.css", "/common.js"):
+    assert (await client.get(path)).status_code == 200, path
+
+  assert (await client.post("/api/login", json={"password": "nope"})).status_code == 401
+  r = await client.post("/api/login", json={"password": "secret123"})
+  assert r.status_code == 200 and "httponly" in r.headers["set-cookie"].lower()
+  assert (await client.get("/api/chargers")).status_code == 200
+
+
+async def test_changing_and_removing_password_needs_current_one(client):
+  await client.post("/api/settings/password", json={"new_password": "secret123"})
+  r = await client.post("/api/settings/password",
+                        json={"current_password": "wrong", "new_password": "other1234"})
+  assert r.status_code == 403
+  assert (await client.post("/api/settings/password",
+                            json={"current_password": "secret123", "new_password": "short"})).status_code == 422
+  r = await client.post("/api/settings/password",
+                        json={"current_password": "secret123", "new_password": "other1234"})
+  assert r.status_code == 200
+  assert (await client.get("/api/chargers")).status_code == 200  # new cookie
+
+  assert (await client.post("/api/settings/password/remove",
+                            json={"current_password": "secret123"})).status_code == 403
+  r = await client.post("/api/settings/password/remove", json={"current_password": "other1234"})
+  assert r.json() == {"enabled": False, "logged_in": False}
+  client.cookies.clear()
+  assert (await client.get("/api/chargers")).status_code == 200  # open again
+
+
+async def test_other_browsers_are_logged_out_by_a_password_change(client):
+  import httpx
+  await client.post("/api/settings/password", json={"new_password": "secret123"})
+  transport = httpx.ASGITransport(app=api.app)
+  async with httpx.AsyncClient(transport=transport, base_url="http://test") as other:
+    await other.post("/api/login", json={"password": "secret123"})
+    assert (await other.get("/api/chargers")).status_code == 200
+    await client.post("/api/settings/password",
+                      json={"current_password": "secret123", "new_password": "other1234"})
+    assert (await other.get("/api/chargers")).status_code == 401

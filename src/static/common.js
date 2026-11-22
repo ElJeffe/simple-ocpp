@@ -6,15 +6,40 @@ const PAGES = [
   ["/sessions", "Sessions"], ["/settings", "Settings"],
 ];
 
-function renderNav() {
+async function renderNav() {
+  if (document.body.dataset.nav === "none") return;
   const here = location.pathname.replace(/\/index\.html$/, "/");
   document.body.insertAdjacentHTML("afterbegin", `<nav class="topnav" aria-label="Pages"><div>
     <span class="brand">simple-ocpp</span>
     ${PAGES.map(([href, label]) =>
       `<a href="${href}" ${href === here ? 'aria-current="page"' : ""}>${label}</a>`).join("")}
   </div></nav>`);
+  const status = await api("GET", "/api/auth").catch(() => null);
+  if (status?.enabled) addLogout();
+}
+
+function addLogout() {
+  if (document.getElementById("logout")) return;
+  document.querySelector(".topnav > div")?.insertAdjacentHTML("beforeend",
+    `<button class="logout" id="logout">Log out</button>`);
+  document.getElementById("logout")?.addEventListener("click", async () => {
+    await api("POST", "/api/logout").catch(() => {});
+    location.href = "/login";
+  });
 }
 document.addEventListener("DOMContentLoaded", renderNav);
+
+// With a password set, a call answered 401 means the login is missing or has
+// expired: go to the login page, and come back here afterwards.
+const originalFetch = window.fetch.bind(window);
+window.fetch = async (input, init) => {
+  const res = await originalFetch(input, init);
+  const url = typeof input === "string" ? input : input.url;
+  if (res.status === 401 && !url.startsWith("/api/login") && location.pathname !== "/login") {
+    location.href = `/login?next=${encodeURIComponent(location.pathname + location.search)}`;
+  }
+  return res;
+};
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));

@@ -24,6 +24,7 @@ STATIC_PAGES = {
     "/energy": "energy.html",
     "/sessions": "sessions.html",
     "/settings": "settings.html",
+    "/login": "login.html",
     "/style.css": "style.css",
     "/common.js": "common.js",
     "/app.js": "app.js",

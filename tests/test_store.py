@@ -485,3 +485,27 @@ def test_boot_close_uses_last_meter_reading_and_real_stop_wins():
   store.stop_session("A", tid, 2600, "2026-11-01T11:59:00Z", "Reboot")  # queued stop arrives
   s = store.list_sessions()[-1]
   assert (s["energy_wh"], s["stop_reason"]) == (1600, "Reboot")
+
+
+# --- Password ---
+
+
+def test_password_and_login_tokens(monkeypatch):
+  assert not store.auth_enabled()
+  assert not store.check_password("anything") and not store.check_login_token("1.x")
+  store.set_password("correct horse")
+  assert store.auth_enabled()
+  assert store.check_password("correct horse") and not store.check_password("wrong")
+  token = store.make_login_token()
+  assert store.check_login_token(token)
+  for bad in (None, "", "garbage", token + "0", "9999999999." + token.split(".")[1]):
+    assert not store.check_login_token(bad), bad
+  import time
+  real = time.time
+  monkeypatch.setattr(time, "time", lambda: real() + store.LOGIN_DAYS * 86400 + 60)
+  assert not store.check_login_token(token)  # expired
+  monkeypatch.setattr(time, "time", real)
+  store.set_password("correct horse")  # same password, new salt: old logins end
+  assert not store.check_login_token(token)
+  store.clear_password()
+  assert not store.auth_enabled() and not store.check_login_token(token)

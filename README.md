@@ -102,6 +102,7 @@ Once a day, the server logs each meter's total reading. During the day, the row 
 
 Most settings are on the **Settings** page and are stored in the database:
 
+- **Password**: optional. See [Security](#security).
 - **Network**: the address and port for charger connections and for the web interface. Changes take effect when the server restarts. `0.0.0.0` means all IPv4 interfaces, `::` all interfaces, and `127.0.0.1` only this computer.
 - **Fiscal year**: the day and month a year starts, used by the energy charts.
 - **Initial energy**: a charger's total meter reading on a given date before it was connected here.
@@ -120,12 +121,22 @@ If you save web interface settings you can't reach, start the server with `OCPP_
 
 ## Security
 
-simple-ocpp has **no login and no encryption**:
+**Web interface password.** By default there is no password: anyone who can reach the web interface can unlock cables, register cards and change settings. To require a login, set a password under **Settings → Password**, at least 8 characters.
 
-- Anyone who can reach the web interface can unlock cables, register cards and change settings.
-- Any device that can reach the charger port can connect as a charger.
+- Every page then asks for the password first, and the API answers 401 until you log in.
+- A login lasts 30 days, also across server restarts, until you click **Log out** in the navigation bar.
+- Changing the password logs out every other browser.
+- Changing or removing the password requires the current one.
+- If you forget it, stop the server and run:
 
-Only run it on a network you trust. Otherwise, let it listen on `127.0.0.1` only and put a reverse proxy with authentication and HTTPS in front of it.
+  ```sh
+  venv/bin/python src/main.py --remove-password
+  ```
+
+**What is not protected:**
+
+- **There is no encryption.** The password and everything else travel over plain HTTP, and chargers use plain `ws://`. For access from outside your own network, let simple-ocpp listen on `127.0.0.1` only and put a reverse proxy with HTTPS in front of it.
+- **Any device that can reach the charger port can connect as a charger.** Only expose that port to the network your chargers are on.
 
 ## HTTP API
 

@@ -12,6 +12,29 @@
   <h1>Settings</h1>
 </header>
 
+<div class="section-head"><h2>Password</h2></div>
+<section class="panel"><div>
+  <p id="pw-status"></p>
+  <form id="pw-form">
+    <div class="fields">
+      <label class="field" id="pw-current-field"><span>Current password</span>
+        <input type="password" name="current" autocomplete="current-password"></label>
+    </div>
+    <div class="fields">
+      <label class="field"><span>New password (at least 8 characters)</span>
+        <input type="password" name="new" minlength="8" autocomplete="new-password"></label>
+      <label class="field"><span>Repeat new password</span>
+        <input type="password" name="repeat" minlength="8" autocomplete="new-password"></label>
+    </div>
+    <p>If you forget the password, stop the server and run <code>venv/bin/python src/main.py --remove-password</code>.</p>
+    <div class="actions-row">
+      <button type="submit" id="pw-save"></button>
+      <button type="button" class="danger" id="pw-remove">Remove password</button>
+      <span class="msg" id="pw-msg"></span>
+    </div>
+  </form>
+</div></section>
+
 <div class="section-head"><h2>Network</h2></div>
 <section class="panel"><div>
   <p>Where the server listens. <code>0.0.0.0</code> means all IPv4 interfaces, <code>::</code> all
@@ -197,8 +220,51 @@ document.getElementById("initial").addEventListener("click", async e => {
   }
 });
 
+function renderPassword(status) {
+  const enabled = status.enabled;
+  document.getElementById("pw-status").textContent = enabled
+    ? "A password is set: the web interface asks for it before showing anything."
+    : "No password is set: anyone who can reach the web interface can use it. Set one to require a login.";
+  document.getElementById("pw-current-field").hidden = !enabled;
+  document.getElementById("pw-remove").hidden = !enabled;
+  document.getElementById("pw-save").textContent = enabled ? "Change password" : "Set password";
+  document.getElementById("pw-form").reset();
+}
+
+document.getElementById("pw-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const form = e.target, msg = document.getElementById("pw-msg");
+  const current = form.elements.current.value, next = form.elements.new.value;
+  if (next.length < 8) { msg.textContent = "The new password needs at least 8 characters."; return; }
+  if (next !== form.elements.repeat.value) { msg.textContent = "The new passwords don't match."; return; }
+  try {
+    const wasEnabled = !document.getElementById("pw-remove").hidden;
+    renderPassword(await api("POST", "/api/settings/password", { current_password: current, new_password: next }));
+    addLogout();
+    msg.textContent = wasEnabled
+      ? "Password changed. Other browsers have to log in again."
+      : "Password set. This browser stays logged in; others have to log in.";
+  } catch (err) {
+    msg.textContent = "Not saved: " + err.message;
+  }
+});
+
+document.getElementById("pw-remove").addEventListener("click", async () => {
+  const form = document.getElementById("pw-form"), msg = document.getElementById("pw-msg");
+  if (!form.elements.current.value) { msg.textContent = "Enter the current password to remove it."; return; }
+  if (!confirm("Remove the password? Anyone who can reach the web interface can then use it.")) return;
+  try {
+    renderPassword(await api("POST", "/api/settings/password/remove", { current_password: form.elements.current.value }));
+    msg.textContent = "Password removed.";
+    document.getElementById("logout")?.remove();
+  } catch (err) {
+    msg.textContent = "Not removed: " + err.message;
+  }
+});
+
 (async () => {
   try {
+    renderPassword(await api("GET", "/api/auth"));
     settings = await api("GET", "/api/settings");
     renderNetwork();
     renderFiscal();

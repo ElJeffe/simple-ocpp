@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import logging
 import signal
+import sys
 from collections.abc import Generator
 from typing import override
 
@@ -97,5 +98,21 @@ async def main() -> None:
   logging.info("Stopped")
 
 
+def remove_password() -> None:
+  """For a forgotten password: opens the web interface to anyone again."""
+  store.ensure_data_dir()
+  store.init_db()
+  if not store.auth_enabled():
+    print("No web interface password is set.")
+    return
+  store.clear_password()
+  print("Web interface password removed; it is open to anyone who can reach it.")
+
+
 if __name__ == "__main__":
-  asyncio.run(main())
+  if sys.argv[1:] == ["--remove-password"]:
+    remove_password()
+  elif sys.argv[1:]:
+    sys.exit(f"Usage: {sys.argv[0]} [--remove-password]")
+  else:
+    asyncio.run(main())

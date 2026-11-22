@@ -12,6 +12,8 @@ def isolated_state(tmp_path, monkeypatch):
   for var in ("OCPP_HOST", "OCPP_PORT", "OCPP_HTTP_HOST", "OCPP_HTTP_PORT"):
     monkeypatch.delenv(var, raising=False)
   monkeypatch.setattr(store.settings, "_active_network", None)
+  from chargepoint.api import auth
+  monkeypatch.setattr(auth, "FAILED_LOGIN_DELAY", 0)
   store.init_db()
   store.registry.clear()
   store.tags.clear()

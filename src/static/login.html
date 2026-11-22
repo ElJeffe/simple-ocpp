@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Log in</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/common.js"></script>
+</head>
+<body data-nav="none">
+<main class="login">
+  <form id="login-form">
+    <h1>simple-ocpp</h1>
+    <label class="field"><span>Password</span>
+      <input type="password" name="password" autocomplete="current-password" required autofocus></label>
+    <button type="submit">Log in</button>
+    <p class="msg" id="login-msg" role="alert"></p>
+  </form>
+</main>
+<script>
+// Only go back to a page on this site, never to another site.
+function nextPage() {
+  const next = new URLSearchParams(location.search).get("next") || "/";
+  return next.startsWith("/") && !next.startsWith("//") ? next : "/";
+}
+
+(async () => {
+  // Already logged in, or no password set: nothing to do here.
+  const status = await api("GET", "/api/auth").catch(() => null);
+  if (status && (!status.enabled || status.logged_in)) location.replace(nextPage());
+})();
+
+document.getElementById("login-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const form = e.target, msg = document.getElementById("login-msg"), button = form.querySelector("button");
+  button.disabled = true;
+  msg.textContent = "";
+  try {
+    await api("POST", "/api/login", { password: form.elements.password.value });
+    location.replace(nextPage());
+  } catch (err) {
+    msg.textContent = err.message;
+    form.elements.password.select();
+  } finally {
+    button.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

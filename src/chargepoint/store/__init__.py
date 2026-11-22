@@ -5,6 +5,15 @@ Use it as `from chargepoint import store` and `store.add_tag(...)`: everything
 public in the modules below is available here.
 """
 
+from .auth import (
+    LOGIN_DAYS,
+    auth_enabled,
+    check_login_token,
+    check_password,
+    clear_password,
+    make_login_token,
+    set_password,
+)
 from .chargers import (
     ChargerJSON,
     ChargerState,
@@ -70,6 +79,8 @@ from .tags import (
 )
 
 __all__ = [
+    "LOGIN_DAYS", "auth_enabled", "check_login_token", "check_password", "clear_password",
+    "make_login_token", "set_password",
     "NO_STOP_RECEIVED", "ChargerJSON", "ChargerState", "ConnectorInfo", "EnergyPeriod",
     "EnergyUsage", "GroupRecord", "InitialEnergy", "LockConfig", "NetworkSettings",
     "SessionRecord", "TagRecord", "active_network", "add_group", "add_tag",
