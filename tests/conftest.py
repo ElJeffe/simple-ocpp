@@ -8,10 +8,10 @@ from chargepoint import charger, store
 
 @pytest.fixture(autouse=True)
 def isolated_state(tmp_path, monkeypatch):
-  monkeypatch.setattr(store, "DB_FILE", tmp_path / "test.db")
+  monkeypatch.setattr(store.database, "DB_FILE", tmp_path / "test.db")
   for var in ("OCPP_HOST", "OCPP_PORT", "OCPP_HTTP_HOST", "OCPP_HTTP_PORT"):
     monkeypatch.delenv(var, raising=False)
-  monkeypatch.setattr(store, "active_network", None)
+  monkeypatch.setattr(store.settings, "_active_network", None)
   store.init_db()
   store.registry.clear()
   store.tags.clear()

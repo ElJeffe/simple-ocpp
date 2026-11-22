@@ -83,7 +83,7 @@ async def main() -> None:
   store.load_registry()
   store.load_tags()
   net = store.network_settings()
-  store.active_network = net  # shown on the settings page
+  store.set_active_network(net)  # shown on the settings page
 
   # Ctrl-C (SIGINT) and SIGTERM (e.g. systemctl stop) both shut down cleanly;
   # a second one during shutdown stops waiting for open connections.

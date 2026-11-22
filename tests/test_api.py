@@ -17,7 +17,7 @@ async def client():
 @pytest.fixture
 def cache_clears(monkeypatch):
   calls = []
-  monkeypatch.setattr(api, "clear_charger_caches", lambda: calls.append(1))
+  monkeypatch.setattr(api.tags, "clear_charger_caches", lambda: calls.append(1))
   return calls
 
 
@@ -182,7 +182,7 @@ async def test_pages_and_shared_files(client):
 
 
 async def test_network_settings_api(client, monkeypatch):
-  monkeypatch.setattr(store, "active_network", store.network_settings())
+  store.set_active_network(store.network_settings())
   body = {"ocpp_host": " ::1 ", "ocpp_port": 9100, "http_host": "my-host.lan", "http_port": 8100}
   r = await client.post("/api/settings/network", json=body)
   assert r.status_code == 200, r.text

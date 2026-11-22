@@ -147,9 +147,11 @@ Layout:
 ```
 src/main.py                  starts the OCPP server and the web interface
 src/chargepoint/charger.py   OCPP message handling, one instance per connected charger
-src/chargepoint/store.py     state and the SQLite database
-src/chargepoint/api.py       HTTP API and pages (FastAPI)
 src/chargepoint/config.py    paths, defaults and environment variables
+src/chargepoint/store/       state and the SQLite database, one module per area:
+                             database, chargers, tags (and groups), sessions, energy, settings
+src/chargepoint/api/         HTTP API and pages (FastAPI), one router per area:
+                             pages, chargers, tags, sessions, energy, settings
 src/static/                  web pages, styles and scripts
 tests/                       pytest tests
 ```

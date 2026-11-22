@@ -116,7 +116,7 @@ def test_init_db_keeps_existing_data():
 
 def test_failed_write_leaves_cache_unchanged(monkeypatch, tmp_path):
   store.add_tag("abc", "Car")
-  monkeypatch.setattr(store, "DB_FILE", tmp_path / "missing" / "x.db")
+  monkeypatch.setattr(store.database, "DB_FILE", tmp_path / "missing" / "x.db")
   with pytest.raises(sqlite3.Error):
     store.update_tag("abc", name="Van")
   with pytest.raises(sqlite3.Error):
@@ -127,7 +127,7 @@ def test_failed_write_leaves_cache_unchanged(monkeypatch, tmp_path):
 
 def test_ensure_data_dir_creates_directory(tmp_path, monkeypatch):
   target = tmp_path / "nested" / "data"
-  monkeypatch.setattr(store, "DATA_DIR", target)
+  monkeypatch.setattr(store.database, "DATA_DIR", target)
   store.ensure_data_dir()
   assert target.is_dir() and list(target.iterdir()) == []
 
@@ -135,7 +135,7 @@ def test_ensure_data_dir_creates_directory(tmp_path, monkeypatch):
 def test_ensure_data_dir_fails_clearly_when_not_writable(tmp_path, monkeypatch):
   blocker = tmp_path / "file"
   blocker.write_text("")  # a file where the directory should be
-  monkeypatch.setattr(store, "DATA_DIR", blocker / "data")
+  monkeypatch.setattr(store.database, "DATA_DIR", blocker / "data")
   with pytest.raises(SystemExit, match="OCPP_DATA_DIR"):
     store.ensure_data_dir()
 
