@@ -1,0 +1,18 @@
+# docker compose up -d --build
+services:
+  simple-ocpp:
+    build: .
+    image: simple-ocpp
+    container_name: simple-ocpp
+    restart: unless-stopped
+    ports:
+      - "9000:9000"   # chargers: ws://<host>:9000/<charger-id>
+      - "8090:8090"   # web interface: http://<host>:8090
+    volumes:
+      - simple-ocpp-data:/var/lib/simple-ocpp
+    environment:
+      TZ: Europe/Amsterdam   # your time zone: energy is logged per local day
+    stop_grace_period: 20s
+
+volumes:
+  simple-ocpp-data:

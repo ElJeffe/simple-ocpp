@@ -114,6 +114,46 @@ Commands that work on the database, such as `--remove-password`, must run as the
 sudo -u simple-ocpp OCPP_DATA_DIR=/var/lib/simple-ocpp /opt/simple-ocpp/venv/bin/python /opt/simple-ocpp/src/main.py --remove-password
 ```
 
+## Running in Docker
+
+The `Dockerfile` builds an image that runs simple-ocpp as an unprivileged user, with its database in a volume at `/var/lib/simple-ocpp`. The easiest way to run it is with `compose.yaml`:
+
+```sh
+docker compose up -d --build
+```
+
+Before starting, set `TZ` in `compose.yaml` to your time zone. Energy is logged per local day, and without it the container uses UTC.
+
+The same with plain Docker:
+
+```sh
+docker build -t simple-ocpp .
+docker run -d --name simple-ocpp --restart unless-stopped \
+  -p 9000:9000 -p 8090:8090 \
+  -v simple-ocpp-data:/var/lib/simple-ocpp \
+  -e TZ=Europe/Amsterdam \
+  simple-ocpp
+```
+
+Instead of building it yourself, you can use the image published on Docker Hub (see [Releases](#releases)): in `compose.yaml`, replace `build: .` with `image: <dockerhub-user>/simple-ocpp:1`. `:1` follows all 1.x versions, and `:1.2.0` stays on one exact version. Then `docker compose pull && docker compose up -d` updates to the latest one.
+
+Some things work differently in the container:
+
+- **Ports:** inside the container, the server always listens on 9000 (chargers) and 8090 (web interface). Choose other ports on the host with `-p`, e.g. `-p 80:8090`. The network fields on the Settings page are locked for this reason, since changing them would break the port mapping.
+- **Data:** everything is in the volume, so the container can be removed and recreated without losing anything.
+  - To use a host directory instead of a named volume, make it writable for the container's user (uid 10001): `sudo chown 10001:10001 /srv/simple-ocpp`.
+- **Stopping:** `docker stop` disconnects chargers cleanly.
+- **Health:** the image has a health check (`docker ps` shows "healthy").
+- **Commands** run through `docker exec`:
+
+  ```sh
+  docker exec simple-ocpp python src/main.py --remove-password
+  docker exec simple-ocpp python src/main.py --backup /var/lib/simple-ocpp/backup.db
+  docker cp simple-ocpp:/var/lib/simple-ocpp/backup.db .
+  ```
+
+- **Updating:** pull the new version and rebuild with `docker compose up -d --build`. The data in the volume is kept.
+
 ## Backup and restore
 
 Everything is in one SQLite file, `simple-ocpp.db` in the data directory. Don't back it up by copying that file while the server runs: a copy taken mid-write can be broken. Use one of these instead; both are safe while chargers are connected.
@@ -135,7 +175,7 @@ Everything is in one SQLite file, `simple-ocpp.db` in the data directory. Don't 
 
 A backup also holds the password hash, so keep it private.
 
-To restore a backup:
+To restore a backup (as a service; in Docker, stop the container, `docker cp` the backup to `/var/lib/simple-ocpp/simple-ocpp.db` and start it again):
 
 ```sh
 sudo systemctl stop simple-ocpp
@@ -238,6 +278,27 @@ venv/bin/pyright         # type checking (strict)
 ```
 
 `start_test.sh` starts a test instance on port 9999, with its data in `/tmp/simple-ocpp`.
+
+### Releases
+
+Pushing a version tag publishes a Docker image to Docker Hub:
+
+```sh
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+The GitHub Actions workflow in `.github/workflows/docker.yml` then:
+
+1. runs the tests and the type check, and stops if they fail;
+2. builds the image for `linux/amd64` (PCs and servers) and `linux/arm64` (Raspberry Pi 4/5);
+3. pushes it as `<dockerhub-user>/simple-ocpp:1.2.0`, `:1.2`, `:1` and `:latest` (pre-releases such as `v1.3.0-rc1` don't get the short tags or `latest`);
+4. copies this README to the Docker Hub page.
+
+It needs this one-time setup, under the GitHub repository's **Settings → Secrets and variables → Actions**:
+
+- a **variable** `DOCKERHUB_USERNAME` with your Docker Hub user name;
+- a **secret** `DOCKERHUB_TOKEN` with a Docker Hub access token (Docker Hub → Account settings → Personal access tokens) with *Read, Write, Delete* access. Updating the Docker Hub description needs the Delete scope; pushing images alone would only need Read & Write.
 
 Layout:
 

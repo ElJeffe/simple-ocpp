@@ -1,0 +1,14 @@
+# Only requirements.txt and src/ are needed to build the image.
+venv/
+.git/
+.gitignore
+.vscode/
+*.code-workspace
+.pytest_cache/
+**/__pycache__/
+tests/
+deploy/
+start_test.sh
+Dockerfile
+compose.yaml
+.dockerignore
