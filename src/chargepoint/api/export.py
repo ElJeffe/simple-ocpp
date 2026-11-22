@@ -4,15 +4,35 @@ import csv
 import io
 from collections.abc import Iterable, Sequence
 from datetime import datetime
+from typing import Literal
 
-from fastapi import Response
+from fastapi import Query, Response
+
+from .. import store
 
 
-def csv_response(filename: str, header: list[str], rows: Iterable[Sequence[object]]) -> Response:
+CsvDecimal = Literal[".", ","]
+DECIMAL = Query(None, description="Decimal separator; the page sends the one it shows")
+
+
+def csv_decimal(requested: CsvDecimal | None) -> CsvDecimal:
+  """The request's separator (the browser's), else the saved one, else a point."""
+  if requested is not None:
+    return requested
+  return "," if store.localisation()["decimal_separator"] == "," else "."
+
+
+def csv_response(
+    filename: str, header: list[str], rows: Iterable[Sequence[object]], decimal: CsvDecimal
+) -> Response:
   """A CSV file download. Starts with a byte order mark so that spreadsheet
-  programs read it as UTF-8 (for the € sign and names with accents)."""
+  programs read it as UTF-8 (for the € sign and names with accents).
+
+  With a decimal comma, columns are separated by semicolons, as spreadsheet
+  programs expect in those regions.
+  """
   out = io.StringIO()
-  writer = csv.writer(out)
+  writer = csv.writer(out, delimiter=";" if decimal == "," else ",")
   writer.writerow(header)
   writer.writerows(rows)
   return Response(
@@ -31,5 +51,8 @@ def local_time(timestamp: str | None) -> str:
     return timestamp
 
 
-def number(value: float | None, decimals: int) -> str:
-  return "" if value is None else f"{value:.{decimals}f}"
+def number(value: float | None, decimals: int, decimal: CsvDecimal) -> str:
+  if value is None:
+    return ""
+  text = f"{value:.{decimals}f}"
+  return text.replace(".", ",") if decimal == "," else text

@@ -97,6 +97,27 @@ def settings_info() -> SettingsInfo:
   )
 
 
+class LocalisationUpdate(Model):
+  time_format: store.TimeFormat
+  decimal_separator: store.DecimalSeparator
+  currency: str = Field(min_length=1, max_length=5)
+
+
+@router.get("/api/localisation")
+async def get_localisation() -> store.Localisation:
+  return store.localisation()
+
+
+@router.post("/api/localisation")
+async def update_localisation(body: LocalisationUpdate) -> store.Localisation:
+  store.set_localisation({
+      "time_format": body.time_format,
+      "decimal_separator": body.decimal_separator,
+      "currency": body.currency,
+  })
+  return store.localisation()
+
+
 @router.get("/api/settings")
 async def get_settings() -> SettingsInfo:
   return settings_info()

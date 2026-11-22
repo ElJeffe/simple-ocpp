@@ -344,10 +344,6 @@ async def test_prices_api(client):
   assert r.json()["tariffs"] == [{"valid_from": "2026-10-01", "price": 0.32}]
   assert (await client.delete("/api/prices/2026-01-01")).status_code == 404
 
-  r = await client.post("/api/prices/currency", json={"currency": "EUR"})
-  assert r.json()["currency"] == "EUR"
-  assert (await client.post("/api/prices/currency", json={"currency": ""})).status_code == 422
-  assert (await client.get("/api/settings")).json()["currency"] == "EUR"
   assert (await client.get("/prices")).status_code == 200
 
 
@@ -561,3 +557,38 @@ async def test_login_activity_is_logged_without_the_password(client, caplog):
   assert [level for level, _ in lines("wrong current password")] == ["WARNING"]
   logged = " ".join(r.getMessage() for r in caplog.records)
   assert not any(secret in logged for secret in ("secret123", "wrong-guess", "nope-nope", "other1234"))
+
+
+async def test_localisation_settings(client):
+  assert (await client.get("/api/localisation")).json() == {
+      "time_format": "browser", "decimal_separator": "browser", "currency": "€"}
+  body = {"time_format": "24h", "decimal_separator": ",", "currency": "EUR"}
+  assert (await client.post("/api/localisation", json=body)).json() == body
+  assert (await client.get("/api/prices")).json()["currency"] == "EUR"
+  for bad in ({"time_format": "9h"}, {"decimal_separator": ";"}, {"currency": ""}, {"currency": "toolong"}):
+    assert (await client.post("/api/localisation", json={**body, **bad})).status_code == 422, bad
+  assert (await client.get("/api/localisation")).json() == body
+  assert (await client.post("/api/prices/currency", json={"currency": "X"})).status_code in (404, 405)
+
+
+async def test_csv_follows_decimal_separator(client):
+  from datetime import date
+  store.add_tariff(date(2026, 1, 1), 0.5)
+  store.record_energy("A", 1, 0, date(2026, 1, 1))
+  store.record_energy("A", 1, 2500, date(2026, 1, 2))
+  params = {"period": "month"}
+  r = await client.get("/api/energy.csv", params=params)
+  assert r.text.lstrip("\ufeff").splitlines()[1] == "2026-01,2.500,1.25"
+  await client.post("/api/localisation", json={
+      "time_format": "browser", "decimal_separator": ",", "currency": "€"})
+  r = await client.get("/api/energy.csv", params=params)
+  assert r.text.lstrip("\ufeff").splitlines() == ["Month;Energy (kWh);Cost (€)", "2026-01;2,500;1,25"]
+  r = await client.get("/api/energy.csv", params={**params, "decimal": "."})  # as the page shows it
+  assert r.text.lstrip("\ufeff").splitlines()[1] == "2026-01,2.500,1.25"
+  await client.post("/api/localisation", json={
+      "time_format": "browser", "decimal_separator": "browser", "currency": "€"})
+  r = await client.get("/api/energy.csv", params={**params, "decimal": ","})  # a comma browser
+  assert r.text.lstrip("\ufeff").splitlines()[1] == "2026-01;2,500;1,25"
+  r = await client.get("/api/sessions.csv", params={"decimal": ","})
+  assert r.text.lstrip("\ufeff").startswith("Transaction;Charger")
+  assert (await client.get("/api/energy.csv", params={"decimal": ";"})).status_code == 422

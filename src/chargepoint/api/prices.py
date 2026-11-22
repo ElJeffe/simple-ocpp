@@ -25,10 +25,6 @@ class PriceIn(Model):
   price: float = Field(ge=0, le=100, description="Per kWh in currency units, e.g. 0.305 for 30.5 c€/kWh")
 
 
-class CurrencyIn(Model):
-  currency: str = Field(min_length=1, max_length=5)
-
-
 class PriceUrlIn(Model):
   url: str = Field(max_length=2000)  # "" removes it
 
@@ -93,10 +89,4 @@ async def remove_price(valid_from: date) -> Prices:
 async def set_price_url(body: PriceUrlIn) -> Prices:
   """Saves the link to where prices can be looked up. It is never fetched."""
   store.set_price_url(body.url)
-  return prices()
-
-
-@router.post("/api/prices/currency")
-async def set_currency(body: CurrencyIn) -> Prices:
-  store.set_currency(body.currency)
   return prices()

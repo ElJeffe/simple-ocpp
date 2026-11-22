@@ -48,7 +48,7 @@ function renderEntries(entries) {
   setHtml($("logs"), entries.length ? `<table class="log-table">
     <tr><th>Time</th><th>Level</th><th>Source</th><th>Message</th></tr>
     ${entries.map(e => `<tr>
-      <td class="log-time">${esc(new Date(e.time).toLocaleString())}</td>
+      <td class="log-time">${esc(formatDateTime(e.time))}</td>
       <td><span class="pill ${LEVEL_CLASS[e.level] || "idle"}">${esc(e.level)}</span></td>
       <td class="log-source">${esc(e.source)}</td>
       <td class="log-message">${esc(e.message)}</td>
@@ -57,6 +57,7 @@ function renderEntries(entries) {
 }
 
 async function load() {
+  await localisationReady;
   const call = ++loadCount;
   const params = new URLSearchParams({ level: $("log-level").value });
   if ($("log-source").value) params.set("source", $("log-source").value);
@@ -65,7 +66,7 @@ async function load() {
     if (call !== loadCount) return;
     renderSources(data.sources);
     renderEntries(data.entries);
-    $("updated").textContent = "Updated " + new Date().toLocaleTimeString();
+    $("updated").textContent = "Updated " + formatTime(new Date());
   } catch {
     if (call === loadCount) $("updated").innerHTML = `<span class="pill bad">Server unreachable</span>`;
   }

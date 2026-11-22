@@ -64,6 +64,32 @@
   </form>
 </div></section>
 
+<div class="section-head"><h2>Localisation</h2></div>
+<section class="panel"><div>
+  <p>How times, numbers and money are shown on all pages. CSV downloads use the same decimal
+    separator, also with Browser default; with a decimal comma, their columns are separated by semicolons.</p>
+  <form id="locale-form">
+    <div class="fields stacked">
+      <label class="field"><span>Time format</span>
+        <select name="time_format">
+          <option value="browser">Browser default</option>
+          <option value="24h">24-hour (14:30)</option>
+          <option value="12h">12-hour (2:30 PM)</option>
+        </select></label>
+      <label class="field"><span>Decimal separator</span>
+        <select name="decimal_separator">
+          <option value="browser">Browser default</option>
+          <option value=",">Comma (1.234,56)</option>
+          <option value=".">Point (1,234.56)</option>
+        </select></label>
+      <label class="field"><span>Currency sign</span>
+        <input type="text" name="currency" maxlength="5" required></label>
+    </div>
+    <p id="locale-preview"></p>
+    <div class="actions-row"><button type="submit">Save</button><span class="msg" id="locale-msg"></span></div>
+  </form>
+</div></section>
+
 <div class="section-head"><h2>Fiscal year</h2></div>
 <section class="panel"><div>
   <p>The day a year starts in the energy charts' Months and Years views.</p>
@@ -193,6 +219,40 @@ document.getElementById("net-form").addEventListener("submit", async e => {
   try {
     settings = await api("POST", "/api/settings/network", body);
     renderNetwork();
+    msg.textContent = "Saved.";
+  } catch (err) {
+    msg.textContent = "Not saved: " + err.message;
+  }
+});
+
+function localeFormValues() {
+  const f = document.getElementById("locale-form").elements;
+  return { time_format: f.time_format.value, decimal_separator: f.decimal_separator.value,
+    currency: f.currency.value.trim() };
+}
+
+function renderLocalePreview() {
+  const config = localeFormValues();
+  const amount = formatNumber(1234.56, { minimumFractionDigits: 2 }, config);
+  document.getElementById("locale-preview").textContent =
+    `Example: ${formatDateTime(new Date(), config)} · ${amount} kWh · ${config.currency || "?"}\u00a0${amount}`;
+}
+
+function renderLocalisation() {
+  const f = document.getElementById("locale-form").elements;
+  f.time_format.value = localisation.time_format;
+  f.decimal_separator.value = localisation.decimal_separator;
+  f.currency.value = localisation.currency;
+  renderLocalePreview();
+}
+
+document.getElementById("locale-form").addEventListener("input", renderLocalePreview);
+document.getElementById("locale-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const msg = document.getElementById("locale-msg");
+  try {
+    localisation = await api("POST", "/api/localisation", localeFormValues());
+    renderLocalisation();
     msg.textContent = "Saved.";
   } catch (err) {
     msg.textContent = "Not saved: " + err.message;
@@ -332,6 +392,8 @@ document.getElementById("pw-remove").addEventListener("click", async () => {
 
 (async () => {
   try {
+    await localisationReady;
+    renderLocalisation();
     renderPassword(await api("GET", "/api/auth"));
     settings = await api("GET", "/api/settings");
     renderNetwork();

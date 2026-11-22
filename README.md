@@ -213,7 +213,6 @@ Open `http://<server-address>:8090`. The navigation bar at the top has seven pag
   - The table lists every price, with its validity period and which one applies today. Each row can be edited (price and start date) or removed.
   - The earliest price also applies to everything before its date. A session's cost uses the price on the day it started; energy per day, month or year uses each day's own price. Without a price, no costs are shown.
   - **Find current prices** is a saved link to the page where you look up prices. Click **Edit** next to it to change it, or clear it to remove it. Prices are not retrieved from it automatically.
-  - The currency symbol or code is set at the bottom of the page.
 - **Logs**: recent log lines, newest first, updated live. Filter by source (`server`, `ocpp`, `websocket`, `web`) and minimum level: TRACE, DEBUG, INFO (the default), WARNING or ERROR. ERROR needs action (data not saved, a charger fault, a refused session that may keep charging), WARNING is a failure or denied card that the system survives, INFO is a readable timeline of events, DEBUG holds protocol steps and raw OCPP messages, and TRACE holds repeating messages such as heartbeats, meter values and unchanged statuses. The console and service logs show INFO and up; DEBUG and TRACE appear only on this page. The server keeps the latest 2,000 TRACE lines and 2,000 other lines in memory, so the list starts empty after a restart, and the page shows the newest 500 that match the filters. Logs contain charger IDs and RFID tags.
 - **Settings**: see below.
 
@@ -233,6 +232,7 @@ Most settings are on the **Settings** page and are stored in the database:
 
 - **Password**: optional. See [Security](#security).
 - **Network**: the address and port for charger connections and for the web interface. Changes take effect when the server restarts: click **Restart server** on the same page. The restart is refused if a new address or port can't be opened, and the page then takes you to the new address. `0.0.0.0` means all IPv4 interfaces, `::` all interfaces, and `127.0.0.1` only this computer.
+- **Localisation**: time format (24-hour or 12-hour), decimal separator and currency sign for all pages. CSV downloads use the separator shown on the page, also with **Browser default**; with a decimal comma, their columns are separated by semicolons.
 - **Fiscal year**: the day and month a year starts, used by the energy charts.
 - **Initial energy**: a charger's total meter reading on a given date before it was connected here.
 

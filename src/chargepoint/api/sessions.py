@@ -5,7 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query, Response
 
 from .. import store
-from .export import csv_response, local_time, number
+from .export import DECIMAL, CsvDecimal, csv_decimal, csv_response, local_time, number
 
 router = APIRouter()
 
@@ -55,12 +55,14 @@ async def sessions_csv(
     charger_id: str | None = None,
     since: datetime | None = SINCE,
     until: datetime | None = UNTIL,
+    decimal: CsvDecimal | None = DECIMAL,
 ) -> Response:
   """All sessions matching the filter, oldest first, as a CSV download.
   Times are in the server's time zone."""
   check_zones(since, until)
   sessions = reversed(store.list_sessions(charger_id, None, 0, since, until))
   currency = store.currency()
+  separator = csv_decimal(decimal)
 
   def status(s: store.SessionRecord) -> str:
     if not s["accepted"]:
@@ -83,10 +85,10 @@ async def sessions_csv(
   rows = ([
       s["id"], s["charger_id"], s["connector_id"], s["id_tag"], s["tag_name"],
       local_time(s["started_at"]), local_time(s["stopped_at"]), minutes(s),
-      number(None if s["energy_wh"] is None else s["energy_wh"] / 1000, 3),
-      number(s["cost"], 2), status(s), s["stop_id_tag"] or "",
+      number(None if s["energy_wh"] is None else s["energy_wh"] / 1000, 3, separator),
+      number(s["cost"], 2, separator), status(s), s["stop_id_tag"] or "",
   ] for s in sessions)
   return csv_response("charge-sessions.csv", [
       "Transaction", "Charger", "Connector", "Tag", "Tag name", "Started", "Stopped",
       "Minutes", "Energy (kWh)", f"Cost ({currency})", "Status", "Stopped by tag",
-  ], rows)
+  ], rows, separator)

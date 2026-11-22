@@ -25,10 +25,12 @@ function ago(iso) {
   if (s < 60) return `${s}s ago`;
   if (s < 3600) return `${Math.round(s / 60)} min ago`;
   if (s < 86400) return `${Math.round(s / 3600)} h ago`;
-  return new Date(iso).toLocaleString();
+  return formatDateTime(iso);
 }
 
-const power = w => w >= 1000 ? `${(w / 1000).toFixed(1)} kW` : `${Math.round(w)} W`;
+const power = w => w >= 1000
+  ? `${formatNumber(w / 1000, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kW`
+  : `${Math.round(w)} W`;
 
 // The sessions in progress on a charger: who, how long, how much so far.
 function liveSessions(c) {
@@ -67,7 +69,7 @@ function connectorRows(c) {
       : `<span class="sub">status unknown</span>`;
     const meter = [];
     if (k.power_w != null) meter.push(power(k.power_w));
-    if (k.energy_wh != null) meter.push(`${(k.energy_wh / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })} kWh total`);
+    if (k.energy_wh != null) meter.push(`${formatNumber(k.energy_wh / 1000, { maximumFractionDigits: 1 })} kWh total`);
     const meterLine = meter.length ? `<div class="sub">${meter.join(" · ")}</div>` : "";
     return `<dt>${label}</dt><dd>${pill}${err}${meterLine}</dd>`;
   });
@@ -193,7 +195,7 @@ function renderSessions(sessions, chargers) {
     ${sessions.map(s => {
       const name = s.tag_name || findTag(s.id_tag)?.name;
       return `<tr>
-        <td>${esc(new Date(s.started_at).toLocaleString())}</td>
+        <td>${esc(formatDateTime(s.started_at))}</td>
         <td>${esc(s.charger_id)} <span class="sub">#${esc(s.connector_id)}</span></td>
         <td>${name ? `<span class="tagname">${esc(name)}</span> ` : ""}<code class="rfid">${esc(s.id_tag || "—")}</code></td>
         <td class="num">${s.accepted && s.stop_reason !== NO_STOP_RECEIVED ? duration(s.started_at, s.stopped_at) : "—"}</td>
@@ -247,7 +249,9 @@ function renderSessionSummary({ summary, filter }) {
   if (summary.count) parts.push(`<b>${esc(kwh(summary.energy_wh))}</b>`);
   if (summary.count && summary.cost != null) parts.push(`<b>${esc(money(summary.cost, summary.currency))}</b>`);
   $("session-summary").innerHTML = parts.join(" · ");
-  $("session-csv").href = `/api/sessions.csv?${filter}`;
+  const csv = new URLSearchParams(filter);
+  csv.set("decimal", csvDecimal());
+  $("session-csv").href = `/api/sessions.csv?${csv}`;
 }
 
 function renderPager(shown) {
@@ -317,6 +321,7 @@ function card(c) {
 let refreshCount = 0;
 
 async function refresh() {
+  await localisationReady;
   const call = ++refreshCount;
   const list = $("list");
   const needTags = Boolean(list || $("tags") || $("sessions"));
@@ -351,7 +356,7 @@ async function refresh() {
     if (list) list.innerHTML = chargers.length
       ? chargers.map(card).join("")
       : `<div class="empty">No chargers have connected yet.<br>Point a charger at <code>ws://&lt;this-host&gt;:9000/&lt;charger-id&gt;</code>.</div>`;
-    $("updated").textContent = "Updated " + new Date().toLocaleTimeString();
+    $("updated").textContent = "Updated " + formatTime(new Date());
   } catch (e) {
     document.getElementById("updated").innerHTML =
       `<span class="pill bad">Server unreachable</span>`;
@@ -497,6 +502,7 @@ let currency = "€";
 let hasTariff = false;   // whether costs can be shown
 
 async function loadSettings() {
+  await localisationReady;
   try {
     const settings = await api("GET", "/api/settings");
     fiscal = settings.fiscal_year_start;
@@ -606,7 +612,7 @@ function renderEnergy() {
     ? `<b>${esc(kwh(total * 1000))}</b>${costText} used ${energyView.period === "year" ? "in total" : `in ${esc(energyRangeLabel())}`}`
     : `No energy readings for ${esc(energyRangeLabel())}`;
   const [firstDay, lastDay] = energyDays();
-  const csv = new URLSearchParams({ period: energyView.period });
+  const csv = new URLSearchParams({ period: energyView.period, decimal: csvDecimal() });
   if (energyView.charger) csv.set("charger_id", energyView.charger);
   if (firstDay) { csv.set("first_day", firstDay); csv.set("last_day", lastDay); }
   $("energy-csv").href = `/api/energy.csv?${csv}`;
@@ -620,7 +626,7 @@ function renderEnergy() {
   const y = v => m.top + ph - (v / top) * ph;
   const slot = pw / buckets.length, bw = Math.min(24, slot * 0.7);
   const labelEvery = Math.ceil(buckets.length / Math.max(1, Math.floor(pw / 30)));
-  const fmt = v => v.toLocaleString(undefined, { maximumFractionDigits: step < 1 ? 2 : 0 });
+  const fmt = v => formatNumber(v, { maximumFractionDigits: step < 1 ? 2 : 0 });
 
   let svg = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Energy used per ${energyView.period}, ${esc(energyRangeLabel())}">`;
   svg += `<text x="${m.left - 8}" y="11" text-anchor="end">kWh</text>`;

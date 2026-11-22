@@ -44,11 +44,49 @@ window.fetch = async (input, init) => {
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-// A cost such as "€ 12.34"; "—" when there is none.
-const money = (value, currency) => value == null ? "—"
-  : `${currency}\u00a0${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// Localisation, from the Settings page. "browser" follows the browser's language.
+let localisation = { time_format: "browser", decimal_separator: "browser", currency: "€" };
 
-const kwh = wh => `${(wh / 1000).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kWh`;
+// Pages wait for this before their first draw. The login page needs none.
+const localisationReady = new Promise(resolve => {
+  document.addEventListener("DOMContentLoaded", async () => {
+    if (document.body.dataset.nav !== "none") {
+      try { localisation = await api("GET", "/api/localisation"); } catch { /* keep defaults */ }
+    }
+    resolve();
+  });
+});
+
+function formatNumber(value, options = {}, config = localisation) {
+  const parts = new Intl.NumberFormat(undefined, options).formatToParts(value);
+  const decimal = config.decimal_separator;
+  if (decimal === "browser") return parts.map(p => p.value).join("");
+  const group = decimal === "," ? "." : ",";
+  return parts.map(p => p.type === "decimal" ? decimal : p.type === "group" ? group : p.value).join("");
+}
+
+// The separator numbers are shown with, for CSV downloads ("." or ",").
+function csvDecimal() {
+  const parts = new Intl.NumberFormat(undefined).formatToParts(1.5);
+  const shown = localisation.decimal_separator === "browser"
+    ? parts.find(p => p.type === "decimal")?.value : localisation.decimal_separator;
+  return shown === "," ? "," : ".";
+}
+
+function timeOptions(config = localisation) {
+  return config.time_format === "browser" ? {}
+    : { hourCycle: config.time_format === "12h" ? "h12" : "h23" };
+}
+const formatDateTime = (date, config = localisation) =>
+  new Date(date).toLocaleString(undefined, timeOptions(config));
+const formatTime = (date, config = localisation) =>
+  new Date(date).toLocaleTimeString(undefined, timeOptions(config));
+
+// A cost such as "€ 12.34"; "—" when there is none.
+const money = (value, currency = localisation.currency) => value == null ? "—"
+  : `${currency}\u00a0${formatNumber(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const kwh = wh => `${formatNumber(wh / 1000, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kWh`;
 
 // Sets innerHTML only when it changed, so the 3-second refresh doesn't reset
 // a dropdown the user is about to open, or move focus.

@@ -10,9 +10,7 @@ import logging
 from datetime import date, datetime
 from typing import TypedDict, cast
 
-from .settings import get_setting, set_setting
-
-DEFAULT_CURRENCY = "€"
+from .settings import get_setting, set_currency, set_setting
 
 
 class Tariff(TypedDict):
@@ -62,11 +60,6 @@ def prices() -> Prices:
   return Prices(tariffs())
 
 
-def currency() -> str:
-  saved = get_setting("currency")
-  return saved if isinstance(saved, str) and saved else DEFAULT_CURRENCY
-
-
 def _save(new: list[Tariff]) -> None:
   days = [t["valid_from"] for t in new]
   if len(days) != len(set(days)):
@@ -112,10 +105,6 @@ def remove_tariff(valid_from: date) -> None:
     raise KeyError(valid_from.isoformat())
   _save(rest)
   logging.info(f"Price from {valid_from} removed")
-
-
-def set_currency(new_currency: str) -> None:
-  set_setting("currency", new_currency)
 
 
 def price_url() -> str:

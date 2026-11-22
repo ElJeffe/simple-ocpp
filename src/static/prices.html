@@ -41,17 +41,6 @@
 <div class="section-head"><h2>Prices</h2></div>
 <section class="panel"><div id="price-list"></div></section>
 
-<div class="section-head"><h2>Currency</h2></div>
-<section class="panel"><div>
-  <form id="currency-form">
-    <div class="fields">
-      <label class="field"><span>Currency symbol or code</span>
-        <input type="text" name="currency" maxlength="5" required style="max-width: 8em"></label>
-    </div>
-    <div class="actions-row"><button type="submit">Save</button><span class="msg" id="currency-msg"></span></div>
-  </form>
-</div></section>
-
 <script>
 let data = { currency: "€", tariffs: [] };  // from /api/prices, oldest first
 let editing = null;                         // valid_from of the row being edited
@@ -64,7 +53,7 @@ const showDay = iso => parseDay(iso).toLocaleDateString(undefined, { day: "numer
 const toCents = price => Math.round(price * 1e6) / 1e4;  // 0.305 -> 30.5, without float noise
 const fromCents = cents => cents / 100;
 const centUnit = () => `c${data.currency}/kWh`;
-const showPrice = p => `${toCents(p).toLocaleString(undefined, { maximumFractionDigits: 3 })} ${centUnit()}`;
+const showPrice = p => `${formatNumber(toCents(p), { maximumFractionDigits: 3 })} ${centUnit()}`;
 
 function dayBefore(iso) {
   const d = parseDay(iso);
@@ -213,23 +202,11 @@ document.getElementById("price-link").addEventListener("submit", async e => {
   }
 });
 
-document.getElementById("currency-form").addEventListener("submit", async e => {
-  e.preventDefault();
-  const msg = document.getElementById("currency-msg");
-  try {
-    data = await api("POST", "/api/prices/currency", { currency: e.target.elements.currency.value.trim() });
-    msg.textContent = "Saved.";
-    renderList();
-  } catch (err) {
-    msg.textContent = "Not saved: " + err.message;
-  }
-});
-
 (async () => {
   document.getElementById("add-form").elements.valid_from.value = todayIso();
   try {
+    await localisationReady;
     data = await api("GET", "/api/prices");
-    document.getElementById("currency-form").elements.currency.value = data.currency;
     renderList();
   } catch (err) {
     document.getElementById("price-list").innerHTML = `<div class="note warn">Could not load prices: ${esc(err.message)}</div>`;
