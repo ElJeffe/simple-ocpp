@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logs</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/common.js"></script>
+</head>
+<body>
+<header>
+  <h1>Logs</h1>
+  <span id="updated"></span>
+</header>
+<div class="page-body">
+  <div class="filters">
+    <label class="inline">Source <select id="log-source"><option value="">All sources</option></select></label>
+    <label class="inline">Level
+      <select id="log-level">
+        <option value="TRACE">Trace and up (everything)</option>
+        <option value="DEBUG">Debug and up</option>
+        <option value="INFO" selected>Info and up</option>
+        <option value="WARNING">Warning and up</option>
+        <option value="ERROR">Error and up</option>
+      </select>
+    </label>
+    <label class="toggle"><input type="checkbox" id="log-live" checked> Live</label>
+    <span class="filter-summary" id="log-count"></span>
+  </div>
+</div>
+<div id="logs"></div>
+<script>
+// TRACE, DEBUG and INFO share the neutral style.
+const LEVEL_CLASS = { WARNING: "warn", ERROR: "bad", CRITICAL: "bad" };
+const $ = id => document.getElementById(id);
+let loadCount = 0;
+
+function renderSources(sources) {
+  const select = $("log-source"), current = select.value;
+  const names = [...new Set([...sources, ...(current ? [current] : [])])].sort();
+  setHtml(select, `<option value="">All sources</option>` +
+    names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join(""));
+  select.value = current;
+}
+
+function renderEntries(entries) {
+  $("log-count").textContent = `${entries.length} line${entries.length === 1 ? "" : "s"}`;
+  setHtml($("logs"), entries.length ? `<table class="log-table">
+    <tr><th>Time</th><th>Level</th><th>Source</th><th>Message</th></tr>
+    ${entries.map(e => `<tr>
+      <td class="log-time">${esc(new Date(e.time).toLocaleString())}</td>
+      <td><span class="pill ${LEVEL_CLASS[e.level] || "idle"}">${esc(e.level)}</span></td>
+      <td class="log-source">${esc(e.source)}</td>
+      <td class="log-message">${esc(e.message)}</td>
+    </tr>`).join("")}
+  </table>` : `<div class="empty" style="padding:30px 0">No log lines match these filters.</div>`);
+}
+
+async function load() {
+  const call = ++loadCount;
+  const params = new URLSearchParams({ level: $("log-level").value });
+  if ($("log-source").value) params.set("source", $("log-source").value);
+  try {
+    const data = await api("GET", `/api/logs?${params}`);
+    if (call !== loadCount) return;
+    renderSources(data.sources);
+    renderEntries(data.entries);
+    $("updated").textContent = "Updated " + new Date().toLocaleTimeString();
+  } catch {
+    if (call === loadCount) $("updated").innerHTML = `<span class="pill bad">Server unreachable</span>`;
+  }
+}
+
+$("log-source").addEventListener("change", load);
+$("log-level").addEventListener("change", load);
+$("log-live").addEventListener("change", e => { if (e.target.checked) load(); });
+load();
+setInterval(() => { if ($("log-live").checked) load(); }, 3000);
+</script>
+</body>
+</html>

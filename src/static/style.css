@@ -188,3 +188,10 @@ input[type=password] { font: inherit; font-size: 14px; padding: 6px 8px; border-
 input[type=url] { font: inherit; font-size: 14px; padding: 6px 8px; border-radius: 6px;
   border: 1px solid var(--border); background: var(--card); color: var(--text); }
 #price-link-url { color: var(--accent); overflow-wrap: anywhere; }
+
+/* Logs page */
+.log-table td { vertical-align: top; padding: 6px 12px; font-size: 13px; }
+.log-table .log-time, .log-table .log-source { white-space: nowrap; color: var(--muted); }
+.log-table .log-message { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+#logs { max-width: 1100px; margin: 0 auto; padding: 0 20px 40px; }

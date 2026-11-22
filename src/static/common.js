@@ -3,7 +3,7 @@
 // The navigation bar at the top of every page.
 const PAGES = [
   ["/", "Chargers"], ["/tags", "Tags"], ["/energy", "Energy"],
-  ["/sessions", "Sessions"], ["/prices", "Prices"], ["/settings", "Settings"],
+  ["/sessions", "Sessions"], ["/prices", "Prices"], ["/logs", "Logs"], ["/settings", "Settings"],
 ];
 
 async function renderNav() {

@@ -17,7 +17,7 @@ import uvicorn
 import websockets
 from websockets.typing import Subprotocol
 
-from chargepoint import lifecycle, store
+from chargepoint import lifecycle, logbuffer, store
 from chargepoint.api import app
 from chargepoint.charger import on_connect
 from chargepoint.config import DATA_DIR
@@ -85,6 +85,7 @@ def open_web_sockets(host: str, port: int) -> list[socket.socket]:
 
 async def main() -> bool:
   """Runs until stopped. Returns True if a restart was requested."""
+  logbuffer.install()
   store.ensure_data_dir()
   logging.info(f"Data directory: {DATA_DIR}")
   store.init_db()
@@ -106,7 +107,7 @@ async def main() -> bool:
 
   def on_restart() -> None:  # from the settings page
     nonlocal restart
-    logging.info("Restart requested from the web interface")
+    logging.debug("Restart requested from the web interface")
     restart = True
     stop.set()
 

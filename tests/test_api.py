@@ -467,3 +467,97 @@ async def test_price_url(client):
   assert (await client.get("/api/prices")).json()["price_url"] == url
   r = await client.post("/api/prices/url", json={"url": ""})
   assert r.json()["price_url"] == ""
+
+
+async def test_logs_filter_by_level_and_source(client, monkeypatch):
+  import logging
+  from chargepoint import logbuffer
+  buffer = logbuffer.BufferHandler(capacity=3)
+  monkeypatch.setattr(logbuffer, "buffer", buffer)
+  for name, level, text in (("root", logging.INFO, "dropped"), ("root", logging.INFO, "hello"),
+                            ("ocpp", logging.WARNING, "careful"), ("uvicorn.error", logging.ERROR, "broken")):
+    buffer.handle(logging.LogRecord(name, level, "x", 1, text, None, None))
+  data = (await client.get("/api/logs")).json()
+  assert [e["message"] for e in data["entries"]] == ["broken", "careful", "hello"]
+  assert data["sources"] == ["ocpp", "server", "web"]
+  data = (await client.get("/api/logs", params={"level": "WARNING"})).json()
+  assert [e["message"] for e in data["entries"]] == ["broken", "careful"]
+  data = (await client.get("/api/logs", params={"source": "ocpp"})).json()
+  assert [e["level"] for e in data["entries"]] == ["WARNING"]
+  assert len((await client.get("/api/logs", params={"limit": 1})).json()["entries"]) == 1
+  assert (await client.get("/api/logs", params={"level": "LOUD"})).status_code == 422
+  assert (await client.get("/logs")).status_code == 200
+  await client.post("/api/settings/password", json={"new_password": "secret123"})
+  await client.post("/api/logout")
+  assert (await client.get("/api/logs")).status_code == 401
+
+
+def test_repeating_ocpp_lines_become_trace_with_their_replies():
+  import logging
+  from chargepoint import logbuffer
+  log_filter = logbuffer.OcppLevelFilter()
+  def level(fmt, frame):
+    record = logging.LogRecord("ocpp", logging.INFO, "x", 1, fmt, ("CP", frame), None)
+    assert log_filter.filter(record)
+    return record.levelname
+  assert level("%s: receive message %s", '[2,"a","Heartbeat",{}]') == "TRACE"
+  assert level("%s: send %s", '[3,"a",{"currentTime":"t"}]') == "TRACE"
+  assert level("%s: send %s", '[3,"a",{"currentTime":"t"}]') == "DEBUG"  # id is used up
+  assert level("%s: receive message %s", '[2,"b","MeterValues",{}]') == "TRACE"
+  assert level("%s: receive message %s", '[2,"c","BootNotification",{}]') == "DEBUG"
+  assert level("%s: send %s", '[3,"c",{"status":"Accepted"}]') == "DEBUG"
+  assert level("%s: receive message %s", "not json") == "DEBUG"
+  assert level("%s: receive message %s", '[2,"d",{"not":"an action"},{}]') == "DEBUG"
+  assert level("%s: receive message %s", '[2,["bad id"],"Heartbeat",{}]') == "DEBUG"
+
+
+async def test_trace_is_hidden_by_default_and_cannot_push_out_info(client, monkeypatch):
+  import logging
+  from chargepoint import logbuffer
+  buffer = logbuffer.BufferHandler(capacity=2)
+  monkeypatch.setattr(logbuffer, "buffer", buffer)
+  buffer.handle(logging.LogRecord("root", logging.INFO, "x", 1, "important", None, None))
+  for i in range(5):
+    buffer.handle(logging.LogRecord("root", logbuffer.TRACE, "x", 1, f"beat {i}", None, None))
+  info = (await client.get("/api/logs")).json()["entries"]
+  assert [e["message"] for e in info] == ["important"]
+  everything = (await client.get("/api/logs", params={"level": "TRACE"})).json()["entries"]
+  assert [e["message"] for e in everything] == ["beat 4", "beat 3", "important"]
+  assert everything[0]["level"] == "TRACE"
+
+
+def test_library_lines_get_the_right_level():
+  import logging
+  from chargepoint import logbuffer
+  def level(log_filter, msg, original=logging.INFO, args=()):
+    record = logging.LogRecord("x", original, "x", 1, msg, args, None)
+    assert log_filter.filter(record)
+    return record.levelname
+  server = logbuffer.ServerLibraryFilter()
+  assert level(server, "connection open") == "DEBUG"
+  assert level(server, "Application startup complete.") == "DEBUG"
+  assert level(server, "connection rejected (%d %s)", args=(400, "Bad Request")) == "WARNING"
+  assert level(server, "Invalid HTTP request received.", logging.WARNING) == "WARNING"
+  assert level(logbuffer.OcppLevelFilter(), "Received a CALLError: %s'", logging.WARNING, ("x",)) == "DEBUG"
+  assert level(logbuffer.OcppLevelFilter(), "Ignoring response with unknown unique id: %s", logging.ERROR, ("x",)) == "ERROR"
+
+
+async def test_login_activity_is_logged_without_the_password(client, caplog):
+  import logging
+  caplog.set_level(logging.INFO)
+  def lines(text):
+    return [(r.levelname, r.getMessage()) for r in caplog.records if text in r.getMessage()]
+  await client.post("/api/logout")  # not logged in: nothing to report
+  assert lines("Logout") == []
+  await client.post("/api/settings/password", json={"new_password": "secret123"})
+  await client.post("/api/logout")
+  assert lines("Logout") == [("INFO", "Logout from 127.0.0.1")]
+  await client.post("/api/login", json={"password": "wrong-guess"})
+  assert lines("Failed login") == [("WARNING", "Failed login from 127.0.0.1: wrong password")]
+  await client.post("/api/login", json={"password": "secret123"})
+  assert lines("Login from") == [("INFO", "Login from 127.0.0.1")]
+  await client.post("/api/settings/password",
+                    json={"current_password": "nope-nope", "new_password": "other1234"})
+  assert [level for level, _ in lines("wrong current password")] == ["WARNING"]
+  logged = " ".join(r.getMessage() for r in caplog.records)
+  assert not any(secret in logged for secret in ("secret123", "wrong-guess", "nope-nope", "other1234"))

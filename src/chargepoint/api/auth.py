@@ -2,6 +2,7 @@
 guards every other page and API call while one is set."""
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from urllib.parse import quote
 
@@ -38,6 +39,11 @@ async def require_login(
   return RedirectResponse(f"/login?next={quote(target)}", status_code=303)
 
 
+def client_address(request: Request) -> str:
+  """The connecting address. Behind a proxy or Docker's NAT, that may be theirs."""
+  return request.client.host if request.client else "unknown address"
+
+
 def set_login_cookie(response: Response) -> None:
   response.set_cookie(
       COOKIE, store.make_login_token(), max_age=store.LOGIN_DAYS * 86400,
@@ -69,43 +75,55 @@ async def auth_status(request: Request) -> AuthStatus:
 
 
 @router.post("/api/login")
-async def login(body: Login, response: Response) -> dict[str, bool]:
+async def login(body: Login, request: Request, response: Response) -> dict[str, bool]:
   if not store.auth_enabled():
     return {"ok": True}  # nothing to log in to
   if not store.check_password(body.password):
+    logging.warning(f"Failed login from {client_address(request)}: wrong password")
     await asyncio.sleep(FAILED_LOGIN_DELAY)
     raise HTTPException(401, "Wrong password")
   set_login_cookie(response)
+  logging.info(f"Login from {client_address(request)}")
   return {"ok": True}
 
 
 @router.post("/api/logout")
-async def logout(response: Response) -> dict[str, bool]:
+async def logout(request: Request, response: Response) -> dict[str, bool]:
+  if logged_in(request):
+    logging.info(f"Logout from {client_address(request)}")
   response.delete_cookie(COOKIE)
   return {"ok": True}
 
 
-async def check_current(password: str) -> None:
+async def check_current(password: str, request: Request) -> None:
   # 403, not 401: the browser is logged in, it just typed the wrong password.
   if store.auth_enabled() and not store.check_password(password):
+    logging.warning(
+        f"Password change or removal refused for {client_address(request)}:"
+        " wrong current password"
+    )
     await asyncio.sleep(FAILED_LOGIN_DELAY)
     raise HTTPException(403, "The current password is wrong")
 
 
 @router.post("/api/settings/password")
-async def change_password(body: PasswordChange, response: Response) -> AuthStatus:
+async def change_password(
+    body: PasswordChange, request: Request, response: Response
+) -> AuthStatus:
   """Sets or changes the password. Other browsers are logged out; this one
   stays logged in."""
-  await check_current(body.current_password)
+  await check_current(body.current_password, request)
   store.set_password(body.new_password)
   set_login_cookie(response)
   return AuthStatus(enabled=True, logged_in=True)
 
 
 @router.post("/api/settings/password/remove")
-async def remove_password(body: PasswordRemoval, response: Response) -> AuthStatus:
+async def remove_password(
+    body: PasswordRemoval, request: Request, response: Response
+) -> AuthStatus:
   """Removes the password: the web interface is open to anyone again."""
-  await check_current(body.current_password)
+  await check_current(body.current_password, request)
   store.clear_password()
   response.delete_cookie(COOKIE)
   return AuthStatus(enabled=False, logged_in=False)

@@ -263,3 +263,48 @@ async def test_start_and_boot_close_sessions_without_a_stop(charge_point, monkey
   assert by_id[second.transaction_id]["stopped_at"] is None
   await charge_point.on_boot_notification(charge_point_vendor="V", charge_point_model="M")
   assert store.list_sessions()[0]["stop_reason"] == store.NO_STOP_RECEIVED
+
+
+def levels(caplog, text):
+  return [r.levelname for r in caplog.records if text in r.getMessage()]
+
+
+async def test_status_log_level_depends_on_the_change(charge_point, caplog):
+  from chargepoint.logbuffer import TRACE
+  caplog.set_level(TRACE)
+  status = charge_point.on_status_notification
+  await status(connector_id=2, error_code="NoError", status="Available")
+  await status(connector_id=2, error_code="NoError", status="Available")
+  await status(connector_id=2, error_code="HighTemperature", status="Available")
+  await status(connector_id=2, error_code="GroundFailure", status="Faulted")
+  assert levels(caplog, "Connector 2 status") == ["INFO", "TRACE", "WARNING", "ERROR"]
+
+
+async def test_rfid_and_transaction_log_levels(charge_point, caplog, monkeypatch):
+  import logging
+  caplog.set_level(logging.DEBUG)
+  monkeypatch.setattr(charge_point, "remote_stop", lambda tid: asyncio.sleep(0))
+  store.add_tag("good")
+  await charge_point.on_authorize(id_tag="good")
+  await charge_point.on_authorize(id_tag="stranger")
+  assert levels(caplog, "RFID good: Accepted") == ["INFO"]
+  assert levels(caplog, "RFID stranger: Invalid") == ["WARNING"]
+  await start(charge_point, "stranger")
+  assert levels(caplog, "Refusing transaction") == ["WARNING"]
+  assert levels(caplog, "started on connector") == []
+  await start(charge_point, "good")
+  assert levels(caplog, "started on connector") == ["INFO"]
+
+
+async def test_failed_remote_stop_is_an_error(charge_point, caplog, monkeypatch):
+  async def fail(*args):
+    raise TimeoutError("no answer")
+
+  monkeypatch.setattr(charger.asyncio, "sleep", lambda _: _no_wait())
+  monkeypatch.setattr(charge_point, "request", fail)
+  await charge_point.remote_stop(7)
+  assert levels(caplog, "Could not stop refused transaction 7") == ["ERROR"]
+
+
+async def _no_wait():
+  pass

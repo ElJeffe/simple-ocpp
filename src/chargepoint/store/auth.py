@@ -46,7 +46,7 @@ def set_password(password: str) -> None:
 
 def clear_password() -> None:
   set_setting("password", None)
-  logging.info("Web interface password removed")
+  logging.warning("Web interface password removed; it is open to anyone who can reach it")
 
 
 def check_password(password: str) -> bool:

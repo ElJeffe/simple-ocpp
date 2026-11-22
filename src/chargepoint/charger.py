@@ -12,11 +12,14 @@ from ocpp.v16 import call, call_result, datatypes
 from ocpp.v16.enums import (
     Action,
     AuthorizationStatus,
+    ClearCacheStatus,
     ConfigurationStatus,
     RegistrationStatus,
+    RemoteStartStopStatus,
     UnlockStatus,
 )
 
+from .logbuffer import TRACE
 from .store import (
     ChargerState,
     ConnectorInfo,
@@ -113,7 +116,7 @@ class ChargePoint(cp):
 
   @on(Action.heartbeat)
   async def on_heartbeat(self):
-    logging.info(f"[{self.id}] Heartbeat received")
+    logging.log(TRACE, f"[{self.id}] Heartbeat received")
     self.touch()
     return call_result.Heartbeat(current_time=now_iso())
 
@@ -121,11 +124,20 @@ class ChargePoint(cp):
   async def on_status_notification(
       self, connector_id: int, error_code: str, status: str, **kwargs: Any
   ):
-    logging.info(
-        f"[{self.id}] Connector {connector_id} status: {status} (Error:"
-        f" {error_code})"
-    )
     connector = self.state.connectors.setdefault(connector_id, {})
+    unchanged = (connector.get("status"), connector.get("error_code")) == (status, error_code)
+    if unchanged:
+      level = TRACE  # some chargers keep repeating their status
+    elif status == "Faulted":
+      level = logging.ERROR
+    elif error_code != "NoError":
+      level = logging.WARNING
+    else:
+      level = logging.INFO
+    logging.log(
+        level,
+        f"[{self.id}] Connector {connector_id} status: {status} (Error: {error_code})",
+    )
     was_plugged_in = connector.get("status") in PLUGGED_IN
     connector.update(status=status, error_code=error_code, updated=now_iso())
     self.touch()
@@ -153,8 +165,10 @@ class ChargePoint(cp):
     save_registry()
     try:
       await self.set_cable_lock(True)
-    except Exception as e:  # last_message already says what went wrong
-      logging.warning(f"[{self.id}] Locking cable failed ({reason}): {e!r}")
+    except (asyncio.TimeoutError, OCPPError) as e:  # set_cable_lock logged it
+      logging.debug(f"[{self.id}] Locking cable failed ({reason}): {e!r}")
+    except Exception:
+      logging.exception(f"[{self.id}] Locking cable failed ({reason})")
 
   @on(Action.meter_values)
   async def on_meter_values(
@@ -181,18 +195,19 @@ class ChargePoint(cp):
       self.state.connectors.setdefault(connector_id, {}).update(readings)
     if "energy_wh" in readings:
       record_energy(self.id, connector_id, readings["energy_wh"])
-    logging.info(f"[{self.id}] Meter values connector {connector_id}: {readings}")
+    logging.log(TRACE, f"[{self.id}] Meter values connector {connector_id}: {readings}")
     self.touch()
     return call_result.MeterValues()
 
   @on(Action.authorize)
   async def on_authorize(self, id_tag: str):
-    logging.info(f"[{self.id}] Authorizing RFID: {id_tag}")
+    logging.debug(f"[{self.id}] Authorizing RFID: {id_tag}")
     self.touch()
     self.record_rfid(id_tag)
     info = id_tag_info(id_tag)
     group = f" (group {info.parent_id_tag})" if info.parent_id_tag else ""
-    logging.info(f"[{self.id}] RFID {id_tag}: {info.status.value}{group}")
+    level = logging.INFO if info.status == AuthorizationStatus.accepted else logging.WARNING
+    logging.log(level, f"[{self.id}] RFID {id_tag}: {info.status.value}{group}")
     return call_result.Authorize(id_tag_info=info)
 
   @on(Action.start_transaction)
@@ -204,10 +219,6 @@ class ChargePoint(cp):
       timestamp: str,
       **kwargs: Any,
   ):
-    logging.info(
-        f"[{self.id}] Transaction started on connector {connector_id}"
-        f" (RFID: {id_tag})"
-    )
     self.touch()
     self.record_rfid(id_tag)
 
@@ -231,6 +242,11 @@ class ChargePoint(cp):
       # The charger should stop on its own (StopTransactionOnInvalidId), but
       # send an explicit stop as well in case it doesn't.
       asyncio.create_task(self.remote_stop(transaction_id))
+    else:
+      logging.info(
+          f"[{self.id}] Transaction {transaction_id} started on connector"
+          f" {connector_id} (RFID: {id_tag})"
+      )
 
     return call_result.StartTransaction(
         transaction_id=transaction_id,
@@ -274,11 +290,12 @@ class ChargePoint(cp):
           call.ChangeConfiguration(key="StopTransactionOnInvalidId", value="true"),
           call_result.ChangeConfiguration,
       )
-      logging.info(
+      logging.debug(
           f"[{self.id}] StopTransactionOnInvalidId=true: {response.status}"
       )
     except Exception as e:
-      logging.warning(f"[{self.id}] Could not set StopTransactionOnInvalidId: {e}")
+      # Not a problem by itself: refused sessions also get a RemoteStopTransaction.
+      logging.info(f"[{self.id}] Could not set StopTransactionOnInvalidId: {e}")
 
   async def remote_stop(self, transaction_id: int) -> None:
     await asyncio.sleep(1)  # Let the StartTransaction response arrive first
@@ -287,16 +304,22 @@ class ChargePoint(cp):
           call.RemoteStopTransaction(transaction_id=transaction_id),
           call_result.RemoteStopTransaction,
       )
-      logging.info(
-          f"[{self.id}] RemoteStopTransaction {transaction_id}: {response.status}"
+      level = logging.INFO if response.status == RemoteStartStopStatus.accepted else logging.ERROR
+      logging.log(
+          level,
+          f"[{self.id}] RemoteStopTransaction {transaction_id}: {response.status}",
       )
     except Exception as e:
-      logging.warning(f"[{self.id}] RemoteStopTransaction failed: {e}")
+      logging.error(
+          f"[{self.id}] Could not stop refused transaction {transaction_id};"
+          f" it may keep charging: {e}"
+      )
 
   async def clear_auth_cache(self) -> None:
     try:
       response = await self.request(call.ClearCache(), call_result.ClearCache)
-      logging.info(f"[{self.id}] ClearCache: {response.status}")
+      level = logging.DEBUG if response.status == ClearCacheStatus.accepted else logging.WARNING
+      logging.log(level, f"[{self.id}] ClearCache: {response.status}")
     except Exception as e:
       logging.warning(f"[{self.id}] ClearCache failed: {e}")
 
@@ -325,7 +348,7 @@ class ChargePoint(cp):
     s.lock_busy = True
     action = "lock" if locked else "unlock"
     try:
-      logging.info(f"[{self.id}] Applying cable {action} setting...")
+      logging.debug(f"[{self.id}] Applying cable {action} setting...")
       response = await self.request(
           call.ChangeConfiguration(
               key=LOCK_KEY, value="false" if locked else "true"
@@ -339,7 +362,8 @@ class ChargePoint(cp):
         msg = f"Cable {action} setting accepted; charger needs a reboot."
       else:
         msg = f"Charger rejected cable {action}: {response.status}"
-      logging.info(f"[{self.id}] {msg}")
+      level = logging.INFO if response.status == ConfigurationStatus.accepted else logging.WARNING
+      logging.log(level, f"[{self.id}] {msg}")
 
       if not locked:
         msg += " " + await self.release_connectors()
@@ -353,9 +377,11 @@ class ChargePoint(cp):
       return msg
     except asyncio.TimeoutError:
       s.last_message = f"Charger did not respond to {action} request."
+      logging.warning(f"[{self.id}] {s.last_message}")
       raise
     except OCPPError as e:
       s.last_message = f"Charger refused {action} request: {e.description}"
+      logging.warning(f"[{self.id}] {s.last_message}")
       raise
     finally:
       s.lock_busy = False
@@ -369,14 +395,15 @@ class ChargePoint(cp):
 
   async def manual_unlock(self, connector_id: int = 1) -> str:
     """Sends UnlockConnector to release a cable the connector is holding."""
-    logging.info(
+    logging.debug(
         f"[{self.id}] Sending UnlockConnector for connector {connector_id}..."
     )
     response = await self.request(
         call.UnlockConnector(connector_id=connector_id),
         call_result.UnlockConnector,
     )
-    logging.info(f"[{self.id}] Unlock status: {response.status}")
+    level = logging.INFO if response.status == UnlockStatus.unlocked else logging.WARNING
+    logging.log(level, f"[{self.id}] Connector {connector_id} unlock: {response.status}")
     if response.status == UnlockStatus.unlocked:
       return f"Connector {connector_id} released."
     return f"Connector {connector_id} release: {response.status}."

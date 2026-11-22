@@ -197,7 +197,7 @@ In the charger's OCPP settings (usually in its installer app or local web page),
 
 ## The web interface
 
-Open `http://<server-address>:8090`. The navigation bar at the top has six pages:
+Open `http://<server-address>:8090`. The navigation bar at the top has seven pages:
 
 - **Chargers**: a card per charger.
   - **Lock / Unlock**: changes the cable lock. Unlock also releases a cable that is currently held.
@@ -214,6 +214,7 @@ Open `http://<server-address>:8090`. The navigation bar at the top has six pages
   - The earliest price also applies to everything before its date. A session's cost uses the price on the day it started; energy per day, month or year uses each day's own price. Without a price, no costs are shown.
   - **Find current prices** is a saved link to the page where you look up prices. Click **Edit** next to it to change it, or clear it to remove it. Prices are not retrieved from it automatically.
   - The currency symbol or code is set at the bottom of the page.
+- **Logs**: recent log lines, newest first, updated live. Filter by source (`server`, `ocpp`, `websocket`, `web`) and minimum level: TRACE, DEBUG, INFO (the default), WARNING or ERROR. ERROR needs action (data not saved, a charger fault, a refused session that may keep charging), WARNING is a failure or denied card that the system survives, INFO is a readable timeline of events, DEBUG holds protocol steps and raw OCPP messages, and TRACE holds repeating messages such as heartbeats, meter values and unchanged statuses. The console and service logs show INFO and up; DEBUG and TRACE appear only on this page. The server keeps the latest 2,000 TRACE lines and 2,000 other lines in memory, so the list starts empty after a restart, and the page shows the newest 500 that match the filters. Logs contain charger IDs and RFID tags.
 - **Settings**: see below.
 
 The pages refresh every 3 seconds.
@@ -255,6 +256,7 @@ If you save web interface settings you can't reach, start the server with `OCPP_
 - A login lasts 30 days, also across server restarts, until you click **Log out** in the navigation bar.
 - Changing the password logs out every other browser.
 - Changing or removing the password requires the current one.
+- Logins, logouts and failed attempts appear on the **Logs** page with the client's address. Behind a reverse proxy or Docker's network, that can be the address of the proxy or gateway.
 - If you forget it, run the following (as a service, as the service user; see [Running as a service](#running-as-a-service)):
 
   ```sh
