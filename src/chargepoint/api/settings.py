@@ -1,13 +1,15 @@
 """The settings page: network, fiscal year and initial energy."""
 
+import asyncio
 import ipaddress
 import re
+import socket
 from datetime import date
 
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .. import store
+from .. import lifecycle, store
 from .models import Model
 
 router = APIRouter()
@@ -98,6 +100,49 @@ def settings_info() -> SettingsInfo:
 @router.get("/api/settings")
 async def get_settings() -> SettingsInfo:
   return settings_info()
+
+
+RESTART_DELAY = 0.5  # seconds, so the answer reaches the browser first
+
+
+def check_can_listen(host: str, port: int) -> str | None:
+  """Why the server could not listen on host:port, or None if it can."""
+  try:
+    for family, kind, proto, _, address in socket.getaddrinfo(
+        host, port, type=socket.SOCK_STREAM, flags=socket.AI_PASSIVE
+    ):
+      with socket.socket(family, kind, proto) as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        probe.bind(address)
+  except OSError as e:
+    return f"{host}:{port} is not available ({e.strerror or e})"
+  return None
+
+
+@router.post("/api/restart")
+async def restart() -> NetworkInfo:
+  """Restarts the server to apply saved network settings.
+
+  Refused when a new address or port can't be opened, so a mistake doesn't
+  leave the server unable to start. Returns where it will listen.
+  """
+  if not lifecycle.can_restart():
+    raise HTTPException(409, "This server can't restart itself; restart it by hand")
+  info = settings_info().network
+  active, upcoming = info.active, info.next_start
+  listeners = [  # (new address, address in use now)
+      ((upcoming["ocpp_host"], upcoming["ocpp_port"]),
+       (active["ocpp_host"], active["ocpp_port"]) if active else None),
+      ((upcoming["http_host"], upcoming["http_port"]),
+       (active["http_host"], active["http_port"]) if active else None),
+  ]
+  for new, now in listeners:
+    if new == now:
+      continue  # in use by this server, and free again after the restart
+    if problem := check_can_listen(*new):
+      raise HTTPException(409, f"Not restarted: {problem}")
+  asyncio.get_running_loop().call_later(RESTART_DELAY, lifecycle.request_restart)
+  return info
 
 
 @router.get("/api/backup", response_class=Response)

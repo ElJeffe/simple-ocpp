@@ -96,7 +96,7 @@ Useful commands:
 ```sh
 systemctl status simple-ocpp          # running?
 journalctl -u simple-ocpp -f          # follow the log
-sudo systemctl restart simple-ocpp    # e.g. after changing network settings
+sudo systemctl restart simple-ocpp    # or Settings → Restart server
 ```
 
 To update, pull the new version and restart:
@@ -190,7 +190,7 @@ Once a day, the server logs each meter's total reading. During the day, the row 
 Most settings are on the **Settings** page and are stored in the database:
 
 - **Password**: optional. See [Security](#security).
-- **Network**: the address and port for charger connections and for the web interface. Changes take effect when the server restarts. `0.0.0.0` means all IPv4 interfaces, `::` all interfaces, and `127.0.0.1` only this computer.
+- **Network**: the address and port for charger connections and for the web interface. Changes take effect when the server restarts: click **Restart server** on the same page. The restart is refused if a new address or port can't be opened, and the page then takes you to the new address. `0.0.0.0` means all IPv4 interfaces, `::` all interfaces, and `127.0.0.1` only this computer.
 - **Fiscal year**: the day and month a year starts, used by the energy charts.
 - **Initial energy**: a charger's total meter reading on a given date before it was connected here.
 

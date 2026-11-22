@@ -414,3 +414,44 @@ async def test_backup_download(client):
   await client.post("/api/settings/password", json={"new_password": "secret123"})
   await client.post("/api/logout")
   assert (await client.get("/api/backup")).status_code == 401  # holds the password hash
+
+
+# --- Restart ---
+
+
+async def test_restart_needs_a_running_server(client):
+  r = await client.post("/api/restart")
+  assert r.status_code == 409 and "by hand" in r.json()["detail"]
+
+
+async def test_restart_checks_ports_then_restarts(client, monkeypatch):
+  import asyncio, socket
+  from chargepoint import lifecycle
+  from chargepoint.api import settings as settings_api
+  calls = []
+  monkeypatch.setattr(settings_api, "RESTART_DELAY", 0)
+  lifecycle.set_restart_handler(lambda: calls.append(1))
+  try:
+    with socket.socket() as busy:  # a port something else listens on
+      busy.bind(("127.0.0.1", 0))
+      busy.listen()
+      taken = busy.getsockname()[1]
+      with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        free = probe.getsockname()[1]
+      store.set_active_network(store.network_settings())
+      store.set_network_settings({"ocpp_host": "127.0.0.1", "ocpp_port": taken,
+                                  "http_host": "127.0.0.1", "http_port": free})
+      r = await client.post("/api/restart")
+      assert r.status_code == 409 and f"127.0.0.1:{taken} is not available" in r.json()["detail"]
+      await asyncio.sleep(0.05)
+      assert calls == []
+
+    store.set_network_settings({"ocpp_host": "127.0.0.1", "ocpp_port": taken,
+                                "http_host": "127.0.0.1", "http_port": free})
+    r = await client.post("/api/restart")
+    assert r.status_code == 200 and r.json()["next_start"]["http_port"] == free
+    await asyncio.sleep(0.05)
+    assert calls == [1]
+  finally:
+    lifecycle.set_restart_handler(None)

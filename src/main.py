@@ -4,7 +4,9 @@ import asyncio
 import contextlib
 import logging
 import argparse
+import os
 import signal
+import sys
 from pathlib import Path
 from collections.abc import Generator
 from typing import override
@@ -13,7 +15,7 @@ import uvicorn
 import websockets
 from websockets.typing import Subprotocol
 
-from chargepoint import store
+from chargepoint import lifecycle, store
 from chargepoint.api import app
 from chargepoint.charger import on_connect
 from chargepoint.config import DATA_DIR
@@ -36,7 +38,8 @@ class WebServer(uvicorn.Server):
     yield
 
 
-async def main() -> None:
+async def main() -> bool:
+  """Runs until stopped. Returns True if a restart was requested."""
   store.ensure_data_dir()
   logging.info(f"Data directory: {DATA_DIR}")
   store.init_db()
@@ -49,11 +52,20 @@ async def main() -> None:
   # a second one during shutdown stops waiting for open connections.
   stop = asyncio.Event()
   web: WebServer | None = None
+  restart = False
 
   def on_signal() -> None:
     if stop.is_set() and web is not None:
       web.force_exit = True
     stop.set()
+
+  def on_restart() -> None:  # from the settings page
+    nonlocal restart
+    logging.info("Restart requested from the web interface")
+    restart = True
+    stop.set()
+
+  lifecycle.set_restart_handler(on_restart)
 
   loop = asyncio.get_running_loop()
   for sig in (signal.SIGINT, signal.SIGTERM):
@@ -87,7 +99,8 @@ async def main() -> None:
   stop_task = asyncio.create_task(stop.wait())
   await asyncio.wait({stop_task, web_task}, return_when=asyncio.FIRST_COMPLETED)
 
-  logging.info("Shutting down...")
+  logging.info("Restarting..." if restart else "Shutting down...")
+  lifecycle.set_restart_handler(None)
   stop_task.cancel()
   web.should_exit = True
   ocpp_server.close()  # also closes charger connections ("going away")
@@ -97,6 +110,7 @@ async def main() -> None:
   except TimeoutError:
     logging.warning("Connections did not close in time; exiting anyway")
   logging.info("Stopped")
+  return restart
 
 
 def remove_password() -> None:
@@ -137,5 +151,10 @@ if __name__ == "__main__":
     remove_password()
   elif args.backup:
     backup(args.backup)
-  else:
-    asyncio.run(main())
+  elif asyncio.run(main()):
+    # Start again in this same process (same PID, so systemd keeps tracking
+    # it), with the same arguments and environment: it reads the saved
+    # network settings afresh.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os.execv(sys.executable, [sys.executable, *sys.argv])

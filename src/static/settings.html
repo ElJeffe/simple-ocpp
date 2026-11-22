@@ -56,7 +56,11 @@
     <p>After changing the web interface address or port, open the page at the new address once the server
       has restarted. If you can no longer reach it, start the server with the <code>OCPP_HTTP_HOST</code> and
       <code>OCPP_HTTP_PORT</code> environment variables, which override these settings.</p>
-    <div class="actions-row"><button type="submit">Save</button><span class="msg" id="net-msg"></span></div>
+    <div class="actions-row">
+      <button type="submit">Save</button>
+      <button type="button" class="secondary" id="restart">Restart server</button>
+      <span class="msg" id="net-msg"></span>
+    </div>
   </form>
 </div></section>
 
@@ -100,6 +104,60 @@ let settings = null;
 const url = (scheme, host, port) => `${scheme}://${host.includes(":") ? `[${host}]` : host}:${port}`;
 const same = (a, b) => a && b && NET_FIELDS.every(f => a[f] === b[f]);
 
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const LOOPBACK = ["127.0.0.1", "::1", "localhost"];
+
+// Where the web interface will be after a restart, as seen from this browser.
+function webAddressAfterRestart() {
+  const { active, next_start: next } = settings.network;
+  if (active && next.http_host === active.http_host && next.http_port === active.http_port) {
+    return { origin: location.origin, same: true, unreachable: false };  // unchanged (also behind a proxy)
+  }
+  const host = ["0.0.0.0", "::"].includes(next.http_host) ? location.hostname : next.http_host;
+  return {
+    origin: `${location.protocol}//${host.includes(":") ? `[${host}]` : host}:${next.http_port}`,
+    same: false,
+    unreachable: LOOPBACK.includes(host) && !LOOPBACK.includes(location.hostname),
+  };
+}
+
+document.getElementById("restart").addEventListener("click", async () => {
+  const msg = document.getElementById("net-msg"), button = document.getElementById("restart");
+  const target = webAddressAfterRestart();
+  let question = "Restart the server now? Chargers are disconnected for a moment and reconnect by themselves.";
+  if (!target.same) question += `\n\nThe web interface will then be at ${target.origin}`;
+  if (target.unreachable) {
+    question += `\n\nWarning: it will only listen on the server itself (${settings.network.next_start.http_host}),` +
+      " so this browser won't be able to reach it.";
+  }
+  if (!confirm(question)) return;
+  try {
+    await api("POST", "/api/restart");
+  } catch (err) {
+    msg.textContent = err.message;
+    return;
+  }
+  button.disabled = true;
+  msg.textContent = "Restarting… waiting for the server to come back.";
+  await sleep(1500);
+  for (let i = 0; i < 30; i++) {
+    try {
+      if (target.same) {
+        if ((await fetch("/api/auth", { cache: "no-store" })).ok) { location.reload(); return; }
+      } else {
+        // Another address: the answer can't be read, but getting one at all means it's up.
+        await fetch(`${target.origin}/api/auth`, { mode: "no-cors", cache: "no-store" });
+        location.href = `${target.origin}/settings`;
+        return;
+      }
+    } catch { /* not up yet */ }
+    await sleep(1000);
+  }
+  button.disabled = false;
+  msg.textContent = "The server did not come back within 30 seconds. Check its log" +
+    " (as a service: journalctl -u simple-ocpp).";
+});
+
 function renderNetwork() {
   const { saved, active, next_start, overrides } = settings.network;
   const form = document.getElementById("net-form");
@@ -116,7 +174,7 @@ function renderNetwork() {
       web interface on <code>${esc(url("http", active.http_host, active.http_port))}</code>.</div>`;
   }
   if (active && !same(active, next_start)) {
-    html += `<div class="note warn">Restart the server to apply: chargers on
+    html += `<div class="note warn">Click <b>Restart server</b> to apply: chargers on
       <code>${esc(url("ws", next_start.ocpp_host, next_start.ocpp_port))}</code>,
       web interface on <code>${esc(url("http", next_start.http_host, next_start.http_port))}</code>.</div>`;
   }
