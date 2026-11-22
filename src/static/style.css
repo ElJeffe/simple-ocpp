@@ -15,6 +15,7 @@
 }
 * { box-sizing: border-box; }
 html { scrollbar-gutter: stable; }  /* no sideways jump between short and long pages */
+[hidden] { display: none !important; }  /* also for elements styled with display: flex */
 body {
   margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
   background: var(--bg); color: var(--text);

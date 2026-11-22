@@ -16,8 +16,8 @@
 <section class="panel"><div>
   <p id="pw-status"></p>
   <form id="pw-form">
-    <div class="fields">
-      <label class="field" id="pw-current-field"><span>Current password</span>
+    <div class="fields" id="pw-current-field">
+      <label class="field"><span>Current password</span>
         <input type="password" name="current" autocomplete="current-password"></label>
     </div>
     <div class="fields">
@@ -72,6 +72,16 @@
     <p id="fy-preview"></p>
     <div class="actions-row"><button type="submit">Save</button><span class="msg" id="fy-msg"></span></div>
   </form>
+</div></section>
+
+<div class="section-head"><h2>Backup</h2></div>
+<section class="panel"><div>
+  <p>Downloads a copy of the whole database: chargers, tags and groups, charge sessions, energy history,
+    prices and settings. It is safe to make while chargers are connected. The file also holds the password
+    hash, so keep it somewhere private.</p>
+  <p>To restore a backup, stop the server, replace the database file
+    (<code>simple-ocpp.db</code> in the data directory) with the backup, and start the server again.</p>
+  <div class="actions-row"><a class="button-link" href="/api/backup" download>Download backup</a></div>
 </div></section>
 
 <div class="section-head"><h2>Initial energy</h2></div>

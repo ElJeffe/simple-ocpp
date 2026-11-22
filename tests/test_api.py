@@ -404,3 +404,13 @@ async def test_chargers_include_live_sessions(client):
   assert live["cost"] == pytest.approx(0.75)
   [offline] = chargers["CP_OFF"]["active_sessions"]
   assert (offline["energy_wh"], offline["cost"], offline["power_w"]) == (None, None, None)
+
+
+async def test_backup_download(client):
+  store.add_tag("abc", "Car")
+  r = await client.get("/api/backup")
+  assert r.status_code == 200 and r.content.startswith(b"SQLite format 3\x00")
+  assert 'filename="simple-ocpp-' in r.headers["content-disposition"]
+  await client.post("/api/settings/password", json={"new_password": "secret123"})
+  await client.post("/api/logout")
+  assert (await client.get("/api/backup")).status_code == 401  # holds the password hash

@@ -25,7 +25,7 @@ from .chargers import (
     registry,
     save_registry,
 )
-from .database import db, ensure_data_dir, init_db, now_iso
+from .database import backup, backup_bytes, db, ensure_data_dir, init_db, now_iso
 from .energy import (
     EnergyPeriod,
     EnergyUsage,
@@ -94,6 +94,7 @@ from .tags import (
 )
 
 __all__ = [
+    "backup", "backup_bytes",
     "LOGIN_DAYS", "auth_enabled", "check_login_token", "check_password", "clear_password",
     "make_login_token", "set_password",
     "SessionSummary", "session_summary", "open_sessions", "Tariff", "currency", "local_day", "prices",

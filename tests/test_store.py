@@ -588,3 +588,32 @@ def test_open_sessions_are_accepted_unfinished_ones():
   store.start_session("B", 1, "x", 0, "2026-11-01T10:00:00Z", False)  # refused
   b = store.start_session("B", 2, "a", 0, "2026-11-01T12:00:00Z", True)
   assert [s["id"] for s in store.open_sessions()] == [a, b]
+
+
+def test_backup_is_a_complete_database(tmp_path):
+  import sqlite3
+  store.add_tag("abc", "Car")
+  store.start_session("A", 1, "abc", 0, "2026-11-01T10:00:00Z", True)
+  target = tmp_path / "copy.db"
+  store.backup(target)
+  with sqlite3.connect(target) as conn:
+    assert conn.execute("SELECT name FROM tags").fetchone()[0] == "Car"
+    assert conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] == 1
+  assert store.backup_bytes().startswith(b"SQLite format 3\x00")
+
+
+def test_backup_command(tmp_path):
+  import os, sqlite3, subprocess, sys
+  from pathlib import Path
+  env = {**os.environ, "OCPP_DATA_DIR": str(tmp_path / "data")}
+  target = tmp_path / "backup.db"
+  main = Path(__file__).parent.parent / "src" / "main.py"
+  result = subprocess.run([sys.executable, str(main), "--backup", str(target)],
+                          env=env, capture_output=True, text=True, timeout=30)
+  assert result.returncode == 0, result.stderr
+  assert "backed up" in result.stdout
+  with sqlite3.connect(target) as conn:
+    assert conn.execute("SELECT COUNT(*) FROM chargers").fetchone()[0] == 0
+  bad = subprocess.run([sys.executable, str(main), "--backup", "x", "--remove-password"],
+                       env=env, capture_output=True, text=True, timeout=30)
+  assert bad.returncode == 2 and "not allowed with" in bad.stderr

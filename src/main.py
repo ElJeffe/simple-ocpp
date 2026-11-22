@@ -3,8 +3,9 @@
 import asyncio
 import contextlib
 import logging
+import argparse
 import signal
-import sys
+from pathlib import Path
 from collections.abc import Generator
 from typing import override
 
@@ -109,10 +110,32 @@ def remove_password() -> None:
   print("Web interface password removed; it is open to anyone who can reach it.")
 
 
+def backup(target: Path) -> None:
+  """Writes a consistent copy of the database, also while the server runs."""
+  store.ensure_data_dir()
+  store.init_db()
+  store.backup(target)
+  print(f"Database backed up to {target}")
+
+
 if __name__ == "__main__":
-  if sys.argv[1:] == ["--remove-password"]:
+  parser = argparse.ArgumentParser(
+      description="OCPP 1.6-J central system with a web interface. Without"
+      " options, starts the server."
+  )
+  actions = parser.add_mutually_exclusive_group()
+  actions.add_argument(
+      "--remove-password", action="store_true",
+      help="remove the web interface password (if you forgot it) and exit",
+  )
+  actions.add_argument(
+      "--backup", metavar="FILE", type=Path,
+      help="write a backup of the database to FILE and exit; safe while the server runs",
+  )
+  args = parser.parse_args()
+  if args.remove_password:
     remove_password()
-  elif sys.argv[1:]:
-    sys.exit(f"Usage: {sys.argv[0]} [--remove-password]")
+  elif args.backup:
+    backup(args.backup)
   else:
     asyncio.run(main())

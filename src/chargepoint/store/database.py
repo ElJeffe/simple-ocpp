@@ -1,9 +1,11 @@
 """The SQLite database: connection, schema and the data directory."""
 
 import sqlite3
+import tempfile
 from collections.abc import Generator
 from contextlib import closing, contextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 
 from ..config import DATA_DIR, DB_FILE
 
@@ -120,3 +122,21 @@ def init_db() -> None:
       columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
       if column not in columns:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def backup(target: Path) -> None:
+  """Writes a consistent copy of the database to `target` (overwritten).
+
+  Uses SQLite's backup API, so the copy is complete and valid even while the
+  server keeps writing; copying the file itself could catch it half-written.
+  """
+  with closing(sqlite3.connect(DB_FILE)) as source, closing(sqlite3.connect(target)) as copy:
+    source.backup(copy)
+
+
+def backup_bytes() -> bytes:
+  """The same, as the bytes of a database file (for a download)."""
+  with tempfile.TemporaryDirectory() as tmp:
+    target = Path(tmp) / "backup.db"
+    backup(target)
+    return target.read_bytes()

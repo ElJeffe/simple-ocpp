@@ -1,0 +1,52 @@
+# systemd unit for simple-ocpp. See "Running as a service" in README.md.
+#
+# Assumes the project is installed in /opt/simple-ocpp with its venv, and a
+# system user "simple-ocpp" exists. Copy to /etc/systemd/system/, then:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now simple-ocpp
+
+[Unit]
+Description=simple-ocpp
+Documentation=file:///opt/simple-ocpp/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=simple-ocpp
+Group=simple-ocpp
+WorkingDirectory=/opt/simple-ocpp
+ExecStart=/opt/simple-ocpp/venv/bin/python src/main.py
+# Show log lines in the journal as they happen.
+Environment=PYTHONUNBUFFERED=1
+# Listening addresses and ports can be set on the settings page; these
+# environment variables would override it:
+#Environment=OCPP_PORT=9000
+#Environment=OCPP_HTTP_PORT=8090
+
+# Creates /var/lib/simple-ocpp, owned by the service user: the default data
+# directory.
+StateDirectory=simple-ocpp
+StateDirectoryMode=0750
+
+# SIGTERM shuts down cleanly (chargers are disconnected properly); the server
+# gives connections 10 seconds to close.
+TimeoutStopSec=20
+Restart=on-failure
+RestartSec=5
+
+# Hardening: the service can only write to its data directory.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

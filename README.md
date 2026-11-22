@@ -64,6 +64,86 @@ OCPP_DATA_DIR=~/simple-ocpp-data venv/bin/python src/main.py
 
 Press **Ctrl-C** (or send SIGTERM, e.g. with `systemctl stop`) to stop. Chargers are disconnected cleanly and will reconnect when the server is back.
 
+## Running as a service
+
+`deploy/simple-ocpp.service` is a systemd unit that starts simple-ocpp at boot and restarts it if it stops unexpectedly. It runs as its own system user, which can write only to the data directory `/var/lib/simple-ocpp`.
+
+1. Install the project in `/opt/simple-ocpp` and create its venv:
+
+   ```sh
+   sudo git clone <this repository> /opt/simple-ocpp
+   cd /opt/simple-ocpp
+   sudo python3 -m venv venv
+   sudo venv/bin/pip install -r requirements.txt
+   ```
+
+2. Create the system user it runs as:
+
+   ```sh
+   sudo useradd --system --home-dir /var/lib/simple-ocpp --shell /usr/sbin/nologin simple-ocpp
+   ```
+
+3. Install and start the service. systemd creates `/var/lib/simple-ocpp` for it.
+
+   ```sh
+   sudo cp deploy/simple-ocpp.service /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now simple-ocpp
+   ```
+
+Useful commands:
+
+```sh
+systemctl status simple-ocpp          # running?
+journalctl -u simple-ocpp -f          # follow the log
+sudo systemctl restart simple-ocpp    # e.g. after changing network settings
+```
+
+To update, pull the new version and restart:
+
+```sh
+cd /opt/simple-ocpp
+sudo git pull
+sudo venv/bin/pip install -r requirements.txt
+sudo systemctl restart simple-ocpp
+```
+
+Commands that work on the database, such as `--remove-password`, must run as the service user, so that the database keeps the right owner:
+
+```sh
+sudo -u simple-ocpp OCPP_DATA_DIR=/var/lib/simple-ocpp /opt/simple-ocpp/venv/bin/python /opt/simple-ocpp/src/main.py --remove-password
+```
+
+## Backup and restore
+
+Everything is in one SQLite file, `simple-ocpp.db` in the data directory. Don't back it up by copying that file while the server runs: a copy taken mid-write can be broken. Use one of these instead; both are safe while chargers are connected.
+
+- **Settings → Backup → Download backup** in the web interface.
+- From the command line, e.g. from cron or a systemd timer:
+
+  ```sh
+  venv/bin/python src/main.py --backup /path/to/simple-ocpp-backup.db
+  ```
+
+  As a service, run it as the service user, for example in the `simple-ocpp` user's crontab (`sudo crontab -u simple-ocpp -e`). This writes a backup every night at 3:00 and keeps one per weekday (the `%` signs are escaped because cron treats them specially):
+
+  ```
+  0 3 * * * OCPP_DATA_DIR=/var/lib/simple-ocpp /opt/simple-ocpp/venv/bin/python /opt/simple-ocpp/src/main.py --backup /var/lib/simple-ocpp/backup-$(date +\%a).db
+  ```
+
+  Copy the backups off the machine as well.
+
+A backup also holds the password hash, so keep it private.
+
+To restore a backup:
+
+```sh
+sudo systemctl stop simple-ocpp
+sudo cp simple-ocpp-backup.db /var/lib/simple-ocpp/simple-ocpp.db
+sudo chown simple-ocpp:simple-ocpp /var/lib/simple-ocpp/simple-ocpp.db
+sudo systemctl start simple-ocpp
+```
+
 ## Connecting a charger
 
 In the charger's OCPP settings (usually in its installer app or local web page), set:
@@ -134,7 +214,7 @@ If you save web interface settings you can't reach, start the server with `OCPP_
 - A login lasts 30 days, also across server restarts, until you click **Log out** in the navigation bar.
 - Changing the password logs out every other browser.
 - Changing or removing the password requires the current one.
-- If you forget it, stop the server and run:
+- If you forget it, run the following (as a service, as the service user; see [Running as a service](#running-as-a-service)):
 
   ```sh
   venv/bin/python src/main.py --remove-password

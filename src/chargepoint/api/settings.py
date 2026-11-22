@@ -4,7 +4,7 @@ import ipaddress
 import re
 from datetime import date
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .. import store
@@ -98,6 +98,16 @@ def settings_info() -> SettingsInfo:
 @router.get("/api/settings")
 async def get_settings() -> SettingsInfo:
   return settings_info()
+
+
+@router.get("/api/backup", response_class=Response)
+async def download_backup() -> Response:
+  """A consistent copy of the whole database, as a file download."""
+  name = f"simple-ocpp-{date.today().isoformat()}.db"
+  return Response(
+      store.backup_bytes(), media_type="application/vnd.sqlite3",
+      headers={"Content-Disposition": f'attachment; filename="{name}"'},
+  )
 
 
 @router.post("/api/settings/network")
