@@ -7,6 +7,7 @@ from typing import Literal, TypedDict
 
 from .database import db, now_iso
 from .settings import fiscal_year_start
+from .tariffs import prices
 
 
 EnergyPeriod = Literal["day", "month", "year"]
@@ -18,6 +19,7 @@ PERIOD_LENGTH: dict[EnergyPeriod, int] = {"day": 10, "month": 7}
 class EnergyUsage(TypedDict):
   period: str  # "2026-11-22", "2026-11" or "2026"
   energy_wh: float
+  cost: float | None  # each day at that day's tariff; None without tariffs
 
 
 def record_energy(
@@ -42,9 +44,12 @@ def fiscal_year(day: date, start: tuple[int, int]) -> int:
 
 
 def energy_usage(
-    period: EnergyPeriod, charger_id: str | None = None
+    period: EnergyPeriod, charger_id: str | None = None,
+    first_day: date | None = None, last_day: date | None = None,
 ) -> list[EnergyUsage]:
   """Energy used per day, month or fiscal year, oldest first.
+
+  first_day and last_day (both included) limit which days are counted.
 
   A day's usage is its last reading minus the previous reading of the same
   meter, so days the server was not running are counted on the next day it
@@ -84,18 +89,27 @@ def energy_usage(
     meters.setdefault(meter, []).append((initial["day"], 0, initial["energy_wh"]))
 
   start = fiscal_year_start()
+  price_list = prices()
   totals: dict[str, float] = {}
+  costs: dict[str, float] = {}
   for readings in meters.values():
     previous: float | None = None
     for day, _, energy_wh in sorted(readings):
+      used = 0.0 if previous is None else max(0.0, energy_wh - previous)
+      previous = energy_wh
+      when = date.fromisoformat(day)
+      if (first_day and when < first_day) or (last_day and when > last_day):
+        continue
       if period == "year":
-        key = str(fiscal_year(date.fromisoformat(day), start))
+        key = str(fiscal_year(when, start))
       else:
         key = day[: PERIOD_LENGTH[period]]
-      used = 0.0 if previous is None else max(0.0, energy_wh - previous)
       totals[key] = totals.get(key, 0.0) + used
-      previous = energy_wh
-  return [{"period": k, "energy_wh": v} for k, v in sorted(totals.items())]
+      costs[key] = costs.get(key, 0.0) + (price_list.cost(used, when) or 0.0)
+  return [
+      {"period": k, "energy_wh": v, "cost": costs[k] if price_list else None}
+      for k, v in sorted(totals.items())
+  ]
 
 
 class InitialEnergy(TypedDict):

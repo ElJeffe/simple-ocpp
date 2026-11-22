@@ -165,10 +165,10 @@ async def test_energy_endpoint(client):
   store.record_energy("B", 1, 0, date(2026, 1, 1))
   store.record_energy("B", 1, 500, date(2026, 2, 1))
   r = await client.get("/api/energy", params={"period": "month"})
-  assert r.json() == [{"period": "2026-01", "energy_wh": 2000},
-                      {"period": "2026-02", "energy_wh": 500}]
+  assert r.json() == [{"period": "2026-01", "energy_wh": 2000, "cost": None},
+                      {"period": "2026-02", "energy_wh": 500, "cost": None}]
   r = await client.get("/api/energy", params={"charger_id": "A"})
-  assert r.json()[-1] == {"period": "2026-01-02", "energy_wh": 2000}
+  assert r.json()[-1] == {"period": "2026-01-02", "energy_wh": 2000, "cost": None}
   assert (await client.get("/api/energy", params={"period": "week"})).status_code == 422
 
 
@@ -314,3 +314,72 @@ async def test_other_browsers_are_logged_out_by_a_password_change(client):
     await client.post("/api/settings/password",
                       json={"current_password": "secret123", "new_password": "other1234"})
     assert (await other.get("/api/chargers")).status_code == 401
+
+
+# --- Prices, summary and CSV ---
+
+
+async def test_prices_api(client):
+  assert (await client.get("/api/prices")).json() == {"currency": "€", "tariffs": []}
+  r = await client.post("/api/prices", json={"valid_from": "2026-07-01", "price": 0.3})
+  r = await client.post("/api/prices", json={"valid_from": "2026-01-01", "price": 0.25})
+  assert r.json()["tariffs"] == [{"valid_from": "2026-01-01", "price": 0.25},
+                                 {"valid_from": "2026-07-01", "price": 0.3}]
+  r = await client.post("/api/prices", json={"valid_from": "2026-01-01", "price": 1})
+  assert r.status_code == 400 and "already starts" in r.json()["detail"]
+  for bad in ({"valid_from": "x", "price": 1}, {"valid_from": "2026-02-01", "price": -1},
+              {"valid_from": "2026-02-01", "price": 101}, {"valid_from": "2026-02-01"}):
+    assert (await client.post("/api/prices", json=bad)).status_code == 422, bad
+
+  # change the price, then move its date
+  r = await client.put("/api/prices/2026-07-01", json={"valid_from": "2026-07-01", "price": 0.32})
+  assert r.json()["tariffs"][1] == {"valid_from": "2026-07-01", "price": 0.32}
+  r = await client.put("/api/prices/2026-07-01", json={"valid_from": "2026-10-01", "price": 0.32})
+  assert [t["valid_from"] for t in r.json()["tariffs"]] == ["2026-01-01", "2026-10-01"]
+  r = await client.put("/api/prices/2026-10-01", json={"valid_from": "2026-01-01", "price": 1})
+  assert r.status_code == 400  # date taken by the other price
+  assert (await client.put("/api/prices/2026-07-01", json={"valid_from": "2026-07-01", "price": 1})).status_code == 404
+
+  r = await client.delete("/api/prices/2026-01-01")
+  assert r.json()["tariffs"] == [{"valid_from": "2026-10-01", "price": 0.32}]
+  assert (await client.delete("/api/prices/2026-01-01")).status_code == 404
+
+  r = await client.post("/api/prices/currency", json={"currency": "EUR"})
+  assert r.json()["currency"] == "EUR"
+  assert (await client.post("/api/prices/currency", json={"currency": ""})).status_code == 422
+  assert (await client.get("/api/settings")).json()["currency"] == "EUR"
+  assert (await client.get("/prices")).status_code == 200
+
+
+async def test_session_summary_and_csv(client):
+  store.set_tariffs([{"valid_from": "2026-01-01", "price": 0.25}], "€")
+  store.add_tag("card1", "Car")
+  tid = store.start_session("CP_1", 1, "card1", 1000, "2026-11-01T10:00:00Z", True)
+  store.stop_session("CP_1", tid, 9000, "2026-11-01T12:30:00Z", "EVDisconnected")
+  store.start_session("CP_1", 1, "stranger", 9000, "2026-11-02T10:00:00Z", False)
+  r = await client.get("/api/sessions/summary", params={"since": "2026-11-01T00:00:00Z"})
+  assert r.json() == {"count": 2, "energy_wh": 8000, "cost": 2.0, "currency": "€"}
+
+  r = await client.get("/api/sessions.csv", params={"until": "2026-12-01T00:00:00Z"})
+  assert r.headers["content-type"].startswith("text/csv")
+  assert 'filename="charge-sessions.csv"' in r.headers["content-disposition"]
+  assert r.text.startswith("﻿")
+  import csv, io
+  rows = list(csv.reader(io.StringIO(r.text.lstrip("﻿"))))
+  assert rows[0][-4:] == ["Energy (kWh)", "Cost (€)", "Status", "Stopped by tag"]
+  first, second = rows[1], rows[2]  # oldest first
+  assert first[:5] == [str(tid), "CP_1", "1", "card1", "Car"]
+  assert (first[7], first[8], first[9], first[10]) == ("150", "8.000", "2.00", "EVDisconnected")
+  assert (second[8], second[9], second[10]) == ("", "", "Refused")
+
+
+async def test_energy_csv(client):
+  from datetime import date
+  store.set_tariffs([{"valid_from": "2026-01-01", "price": 0.5}], "€")
+  store.record_energy("A", 1, 0, date(2026, 1, 1))
+  store.record_energy("A", 1, 2000, date(2026, 1, 2))
+  store.record_energy("A", 1, 3000, date(2026, 2, 1))
+  r = await client.get("/api/energy.csv", params={"period": "month", "last_day": "2026-01-31"})
+  assert r.text.lstrip("﻿").splitlines() == ["Month,Energy (kWh),Cost (€)", "2026-01,2.000,1.00"]
+  r = await client.get("/api/energy", params={"period": "year"})
+  assert r.json() == [{"period": "2026", "energy_wh": 3000, "cost": 1.5}]

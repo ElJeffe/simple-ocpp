@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prices</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/common.js"></script>
+</head>
+<body>
+<header>
+  <h1>Electricity price</h1>
+</header>
+
+<section class="panel"><div>
+  <p>The price per kWh, in cents (for example 30.5 for 30.5 c€/kWh), puts a cost on charge sessions and energy, on the Sessions and Energy pages and in the
+    CSV downloads. Each price is valid from its start date until the next price starts, so when the price
+    changes, add a new one: earlier energy keeps its old price. The earliest price also applies to everything
+    before its date. Without any price, no costs are shown.</p>
+  <form id="add-form">
+    <div class="fields">
+      <label class="field"><span>Valid from</span>
+        <input type="date" name="valid_from" required></label>
+      <label class="field"><span>Price (<span class="cent-unit"></span>)</span>
+        <input type="number" name="price" min="0" max="10000" step="0.001" required placeholder="e.g. 30.5"></label>
+    </div>
+    <div class="actions-row"><button type="submit">Add price</button><span class="msg" id="add-msg"></span></div>
+  </form>
+</div></section>
+
+<div class="section-head"><h2>Prices</h2></div>
+<section class="panel"><div id="price-list"></div></section>
+
+<div class="section-head"><h2>Currency</h2></div>
+<section class="panel"><div>
+  <form id="currency-form">
+    <div class="fields">
+      <label class="field"><span>Currency symbol or code</span>
+        <input type="text" name="currency" maxlength="5" required style="max-width: 8em"></label>
+    </div>
+    <div class="actions-row"><button type="submit">Save</button><span class="msg" id="currency-msg"></span></div>
+  </form>
+</div></section>
+
+<script>
+let data = { currency: "€", tariffs: [] };  // from /api/prices, oldest first
+let editing = null;                         // valid_from of the row being edited
+
+const todayIso = () => new Date().toLocaleDateString("sv");  // YYYY-MM-DD, local time
+const parseDay = iso => { const [y, m, d] = iso.split("-").map(Number); return new Date(y, m - 1, d); };
+const showDay = iso => parseDay(iso).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+// Prices are stored per kWh in whole currency units (€/kWh) but entered and
+// shown in cents (c€/kWh), which is how they are usually quoted.
+const toCents = price => Math.round(price * 1e6) / 1e4;  // 0.305 -> 30.5, without float noise
+const fromCents = cents => cents / 100;
+const centUnit = () => `c${data.currency}/kWh`;
+const showPrice = p => `${toCents(p).toLocaleString(undefined, { maximumFractionDigits: 3 })} ${centUnit()}`;
+
+function dayBefore(iso) {
+  const d = parseDay(iso);
+  d.setDate(d.getDate() - 1);
+  return d.toLocaleDateString("sv");
+}
+
+function renderList() {
+  const el = document.getElementById("price-list");
+  document.querySelectorAll(".cent-unit").forEach(s => s.textContent = centUnit());
+  if (!data.tariffs.length) {
+    el.innerHTML = `<div class="empty" style="padding:20px 0">No prices yet, so no costs are shown.</div>`;
+    return;
+  }
+  const today = todayIso();
+  const current = data.tariffs.findLast(t => t.valid_from <= today) ?? data.tariffs[0];
+  el.innerHTML = `<table>
+    <tr><th>Valid from</th><th>Valid until</th><th class="num">Price</th><th></th><th></th></tr>
+    ${data.tariffs.map((t, i) => {
+      const next = data.tariffs[i + 1];
+      const until = next ? showDay(dayBefore(next.valid_from)) : `<span class="sub">until a new price is added</span>`;
+      const from = showDay(t.valid_from) + (i === 0 ? ` <span class="sub">(and earlier)</span>` : "");
+      const status = t === current ? `<span class="pill ok">Current</span>`
+        : t.valid_from > today ? `<span class="pill idle">Upcoming</span>` : "";
+      if (editing === t.valid_from) {
+        return `<tr data-from="${esc(t.valid_from)}">
+          <td><input type="date" name="valid_from" value="${esc(t.valid_from)}" aria-label="Valid from"></td>
+          <td></td>
+          <td class="num"><input type="number" name="price" min="0" max="10000" step="0.001" value="${toCents(t.price)}" aria-label="Price in ${esc(centUnit())}"></td>
+          <td></td>
+          <td class="actions">
+            <button class="small" data-action="save">Save</button>
+            <button class="small secondary" data-action="cancel">Cancel</button>
+          </td>
+        </tr>`;
+      }
+      return `<tr data-from="${esc(t.valid_from)}">
+        <td>${from}</td>
+        <td>${until}</td>
+        <td class="num">${esc(showPrice(t.price))}</td>
+        <td>${status}</td>
+        <td class="actions">
+          <button class="small secondary" data-action="edit">Edit</button>
+          <button class="small danger" data-action="remove">Remove</button>
+        </td>
+      </tr>`;
+    }).join("")}
+  </table>
+  <p class="msg" id="list-msg" style="margin-top: 10px"></p>`;
+}
+
+const path = from => `/api/prices/${encodeURIComponent(from)}`;
+
+document.getElementById("price-list").addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-action]");
+  if (!btn) return;
+  const row = btn.closest("tr"), from = row.dataset.from;
+  const msg = () => document.getElementById("list-msg");
+  try {
+    if (btn.dataset.action === "edit") {
+      editing = from;
+      renderList();
+      document.querySelector(`tr[data-from="${CSS.escape(from)}"] [name=price]`).focus();
+      return;
+    }
+    if (btn.dataset.action === "cancel") {
+      editing = null;
+      renderList();
+      return;
+    }
+    if (btn.dataset.action === "save") {
+      const valid_from = row.querySelector("[name=valid_from]").value;
+      const price = row.querySelector("[name=price]").value;
+      if (!valid_from || price === "") { msg().textContent = "Enter a date and a price."; return; }
+      data = await api("PUT", path(from), { valid_from, price: fromCents(Number(price)) });
+      editing = null;
+      renderList();
+      msg().textContent = "Saved.";
+      return;
+    }
+    if (btn.dataset.action === "remove") {
+      const t = data.tariffs.find(t => t.valid_from === from);
+      if (!confirm(`Remove the price of ${showPrice(t.price)} valid from ${showDay(from)}?`)) return;
+      data = await api("DELETE", path(from));
+      editing = null;
+      renderList();
+    }
+  } catch (err) {
+    msg().textContent = "Not saved: " + err.message;
+  }
+});
+
+document.getElementById("add-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const form = e.target, msg = document.getElementById("add-msg");
+  try {
+    data = await api("POST", "/api/prices",
+      { valid_from: form.elements.valid_from.value, price: fromCents(Number(form.elements.price.value)) });
+    msg.textContent = "Added.";
+    form.elements.price.value = "";
+    renderList();
+  } catch (err) {
+    msg.textContent = "Not added: " + err.message;
+  }
+});
+
+document.getElementById("currency-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const msg = document.getElementById("currency-msg");
+  try {
+    data = await api("POST", "/api/prices/currency", { currency: e.target.elements.currency.value.trim() });
+    msg.textContent = "Saved.";
+    renderList();
+  } catch (err) {
+    msg.textContent = "Not saved: " + err.message;
+  }
+});
+
+(async () => {
+  document.getElementById("add-form").elements.valid_from.value = todayIso();
+  try {
+    data = await api("GET", "/api/prices");
+    document.getElementById("currency-form").elements.currency.value = data.currency;
+    renderList();
+  } catch (err) {
+    document.getElementById("price-list").innerHTML = `<div class="note warn">Could not load prices: ${esc(err.message)}</div>`;
+  }
+})();
+</script>
+</body>
+</html>

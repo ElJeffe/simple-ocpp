@@ -2,11 +2,13 @@
 written by OCPP messages and read by the web interface, and the table grows
 without bound."""
 
+import sqlite3
 from datetime import datetime
 from typing import TypedDict
 
 from .database import db
 from .tags import tag_key, tags
+from .tariffs import Prices, local_day, prices
 
 
 class SessionRecord(TypedDict):
@@ -23,6 +25,13 @@ class SessionRecord(TypedDict):
   stopped_at: str | None
   stop_reason: str | None
   stop_id_tag: str | None
+  cost: float | None  # energy at the tariff of the start day; None without one
+
+
+class SessionSummary(TypedDict):
+  count: int
+  energy_wh: float  # of the sessions that have ended
+  cost: float | None  # None when no tariff is set
 
 
 # Stop reason for sessions closed by the server because the charger never
@@ -94,36 +103,54 @@ def count_sessions(
 
 
 def list_sessions(
-    charger_id: str | None = None, limit: int = 100, offset: int = 0,
+    charger_id: str | None = None, limit: int | None = 100, offset: int = 0,
     since: datetime | None = None, until: datetime | None = None,
 ) -> list[SessionRecord]:
-  """Newest sessions first; `since` is inclusive, `until` exclusive."""
+  """Newest sessions first; `since` is inclusive, `until` exclusive.
+
+  limit=None returns all of them (for exports and summaries).
+  """
   where, params = session_filter(charger_id, since, until)
   query = f"SELECT * FROM sessions{where} ORDER BY id DESC LIMIT ? OFFSET ?"
-  params += [limit, offset]
+  params += [-1 if limit is None else limit, offset]
   with db() as conn:
     rows = conn.execute(query, params).fetchall()
-  return [
-      {
-          "id": row["id"],
-          "charger_id": row["charger_id"],
-          "connector_id": row["connector_id"],
-          "id_tag": row["id_tag"],
-          "tag_name": row["tag_name"],
-          "accepted": bool(row["accepted"]),
-          "meter_start_wh": row["meter_start_wh"],
-          "meter_stop_wh": row["meter_stop_wh"],
-          "energy_wh": (
-              None if row["meter_stop_wh"] is None
-              else row["meter_stop_wh"] - row["meter_start_wh"]
-          ),
-          "started_at": row["started_at"],
-          "stopped_at": row["stopped_at"],
-          "stop_reason": row["stop_reason"],
-          "stop_id_tag": row["stop_id_tag"],
-      }
-      for row in rows
-  ]
+  price_list = prices()
+  return [session_record(row, price_list) for row in rows]
+
+
+def session_record(row: sqlite3.Row, price_list: Prices) -> SessionRecord:
+  energy_wh = None if row["meter_stop_wh"] is None else row["meter_stop_wh"] - row["meter_start_wh"]
+  return {
+    "id": row["id"],
+    "charger_id": row["charger_id"],
+    "connector_id": row["connector_id"],
+    "id_tag": row["id_tag"],
+    "tag_name": row["tag_name"],
+    "accepted": bool(row["accepted"]),
+    "meter_start_wh": row["meter_start_wh"],
+    "meter_stop_wh": row["meter_stop_wh"],
+    "energy_wh": energy_wh,
+    "started_at": row["started_at"],
+    "stopped_at": row["stopped_at"],
+    "stop_reason": row["stop_reason"],
+    "stop_id_tag": row["stop_id_tag"],
+    "cost": price_list.cost(energy_wh, local_day(row["started_at"])),
+  }
+
+
+def session_summary(
+    charger_id: str | None = None, since: datetime | None = None,
+    until: datetime | None = None,
+) -> SessionSummary:
+  """Number of sessions, their energy and their cost, for a filter."""
+  found = list_sessions(charger_id, None, 0, since, until)
+  costs = [s["cost"] for s in found if s["cost"] is not None]
+  return {
+      "count": len(found),
+      "energy_wh": sum(s["energy_wh"] or 0 for s in found),
+      "cost": sum(costs) if prices() else None,
+  }
 
 
 def session_connector(charger_id: str, transaction_id: int) -> int | None:

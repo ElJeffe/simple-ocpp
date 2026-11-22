@@ -279,6 +279,12 @@ def test_init_db_adds_group_and_stop_tag_columns():
   assert store.stop_session("CP_1", tid, 10, "t", None, "b")
 
 
+def usage(*args, **kwargs):
+  """energy_usage() without the cost, which has its own tests."""
+  return [{"period": u["period"], "energy_wh": u["energy_wh"]}
+          for u in store.energy_usage(*args, **kwargs)]
+
+
 def day(s):
   from datetime import date
   return date.fromisoformat(s)
@@ -292,7 +298,7 @@ def test_energy_keeps_last_reading_of_each_day():
     rows = [tuple(r) for r in conn.execute(
         "SELECT day, energy_wh FROM energy_readings ORDER BY day")]
   assert rows == [("2026-11-01", 1500), ("2026-11-02", 4000)]
-  assert store.energy_usage("day") == [
+  assert usage("day") == [
       {"period": "2026-11-01", "energy_wh": 0},  # first reading: nothing to compare
       {"period": "2026-11-02", "energy_wh": 2500},
   ]
@@ -304,15 +310,15 @@ def test_energy_usage_per_month_and_year_and_charger():
     store.record_energy("A", 1, wh, day(d))
   store.record_energy("B", 1, 500, day("2026-01-01"))
   store.record_energy("B", 1, 700, day("2026-01-02"))
-  assert store.energy_usage("month") == [
+  assert usage("month") == [
       {"period": "2025-12", "energy_wh": 0},
       {"period": "2026-01", "energy_wh": 3200},
       {"period": "2026-02", "energy_wh": 500},
   ]
-  assert store.energy_usage("year") == [
+  assert usage("year") == [
       {"period": "2025", "energy_wh": 0}, {"period": "2026", "energy_wh": 3700},
   ]
-  assert store.energy_usage("year", "B") == [{"period": "2026", "energy_wh": 200}]
+  assert usage("year", "B") == [{"period": "2026", "energy_wh": 200}]
 
 
 def test_energy_gap_days_count_on_next_reading_and_resets_count_zero():
@@ -320,7 +326,7 @@ def test_energy_gap_days_count_on_next_reading_and_resets_count_zero():
   store.record_energy("A", 1, 4000, day("2026-03-05"))  # server off for 3 days
   store.record_energy("A", 1, 100, day("2026-03-06"))   # meter replaced
   store.record_energy("A", 1, 600, day("2026-03-07"))
-  assert [u["energy_wh"] for u in store.energy_usage("day")] == [0, 3000, 0, 500]
+  assert [u["energy_wh"] for u in usage("day")] == [0, 3000, 0, 500]
 
 
 def test_energy_ignores_connector_0_when_connectors_report():
@@ -330,7 +336,7 @@ def test_energy_ignores_connector_0_when_connectors_report():
   store.record_energy("A", 1, 1100, day("2026-03-02"))
   store.record_energy("B", 0, 50, day("2026-03-01"))  # only reports connector 0
   store.record_energy("B", 0, 80, day("2026-03-02"))
-  assert store.energy_usage("day")[-1] == {"period": "2026-03-02", "energy_wh": 1030}
+  assert usage("day")[-1] == {"period": "2026-03-02", "energy_wh": 1030}
 
 
 # --- Settings ---
@@ -385,12 +391,12 @@ def test_yearly_energy_uses_fiscal_years():
   for d, wh in [("2025-06-01", 0), ("2025-06-30", 1000), ("2025-07-01", 1500),
                 ("2026-06-30", 4500), ("2026-07-01", 5000)]:
     store.record_energy("A", 1, wh, day(d))
-  assert store.energy_usage("year") == [
+  assert usage("year") == [
       {"period": "2024", "energy_wh": 1000},   # 2024-25: until 30 June 2025
       {"period": "2025", "energy_wh": 3500},
       {"period": "2026", "energy_wh": 500},
   ]
-  assert store.energy_usage("month")[0] == {"period": "2025-06", "energy_wh": 1000}
+  assert usage("month")[0] == {"period": "2025-06", "energy_wh": 1000}
 
 
 # --- Initial energy ---
@@ -400,20 +406,20 @@ def test_initial_energy_counts_usage_until_first_reading():
   store.set_initial_energy("A", day("2026-08-10"), 100_000)
   store.record_energy("A", 1, 160_000, day("2026-11-20"))
   store.record_energy("A", 1, 165_000, day("2026-11-21"))
-  assert store.energy_usage("day") == [
+  assert usage("day") == [
       {"period": "2026-08-10", "energy_wh": 0},
       {"period": "2026-11-20", "energy_wh": 60_000},
       {"period": "2026-11-21", "energy_wh": 5_000},
   ]
-  assert store.energy_usage("year") == [{"period": "2026", "energy_wh": 65_000}]
+  assert usage("year") == [{"period": "2026", "energy_wh": 65_000}]
   assert store.clear_initial_energy("A") and not store.clear_initial_energy("A")
-  assert store.energy_usage("year") == [{"period": "2026", "energy_wh": 5_000}]
+  assert usage("year") == [{"period": "2026", "energy_wh": 5_000}]
 
 
 def test_initial_energy_on_a_reading_day_counts_before_that_reading():
   store.set_initial_energy("A", day("2026-11-20"), 1000)
   store.record_energy("A", 1, 1600, day("2026-11-20"))
-  assert store.energy_usage("day") == [{"period": "2026-11-20", "energy_wh": 600}]
+  assert usage("day") == [{"period": "2026-11-20", "energy_wh": 600}]
 
 
 def test_initial_energy_applies_to_lowest_connector_and_respects_filter():
@@ -421,8 +427,8 @@ def test_initial_energy_applies_to_lowest_connector_and_respects_filter():
   store.set_initial_energy("B", day("2026-01-01"), 0)
   store.record_energy("A", 2, 900, day("2026-02-01"))
   store.record_energy("A", 3, 7000, day("2026-02-01"))
-  assert store.energy_usage("year", "A") == [{"period": "2026", "energy_wh": 400}]
-  assert store.energy_usage("year") == [{"period": "2026", "energy_wh": 400}]
+  assert usage("year", "A") == [{"period": "2026", "energy_wh": 400}]
+  assert usage("year") == [{"period": "2026", "energy_wh": 400}]
   assert store.initial_energy()["B"] == {"day": "2026-01-01", "energy_wh": 0}
 
 
@@ -458,7 +464,7 @@ def test_delete_charger_keeps_or_deletes_history():
   assert store.registry == {}
   assert [s["charger_id"] for s in store.list_sessions()] == ["A"]
   assert set(store.initial_energy()) == {"A"}
-  assert store.energy_usage("day", "B") == []
+  assert usage("day", "B") == []
   with pytest.raises(KeyError):
     store.delete_charger("A")
 
@@ -509,3 +515,67 @@ def test_password_and_login_tokens(monkeypatch):
   assert not store.check_login_token(token)
   store.clear_password()
   assert not store.auth_enabled() and not store.check_login_token(token)
+
+
+# --- Prices and costs ---
+
+
+def test_price_lookup():
+  assert not store.prices() and store.prices().on(day("2026-01-01")) is None
+  store.set_tariffs([{"valid_from": "2026-07-01", "price": 0.30},
+                     {"valid_from": "2026-01-01", "price": 0.25}], "EUR")
+  p = store.prices()
+  assert store.currency() == "EUR" and [t["valid_from"] for t in store.tariffs()] == ["2026-01-01", "2026-07-01"]
+  assert p.on(day("2025-06-01")) == 0.25  # the earliest price also applies before it
+  assert p.on(day("2026-06-30")) == 0.25 and p.on(day("2026-07-01")) == 0.30
+  assert p.cost(2000, day("2026-08-01")) == pytest.approx(0.60)
+  assert p.cost(None, day("2026-08-01")) is None
+  with pytest.raises(ValueError):
+    store.set_tariffs([{"valid_from": "2026-01-01", "price": 1}, {"valid_from": "2026-01-01", "price": 2}], "€")
+
+
+def test_session_cost_uses_price_of_start_day_and_summary():
+  store.set_tariffs([{"valid_from": "2026-01-01", "price": 0.20},
+                     {"valid_from": "2026-11-01", "price": 0.40}], "€")
+  a = store.start_session("A", 1, "a", 0, "2026-10-31T12:00:00Z", True)
+  store.stop_session("A", a, 10_000, "2026-11-01T12:00:00Z", "Local")
+  b = store.start_session("A", 1, "a", 10_000, "2026-11-02T12:00:00Z", True)
+  store.stop_session("A", b, 15_000, "2026-11-02T14:00:00Z", "Local")
+  store.start_session("A", 1, "a", 15_000, "2026-11-03T12:00:00Z", True)  # still charging
+  costs = {s["id"]: s["cost"] for s in store.list_sessions()}
+  assert costs[a] == pytest.approx(2.0) and costs[b] == pytest.approx(2.0) and costs[3] is None
+  summary = store.session_summary()
+  assert (summary["count"], summary["energy_wh"]) == (3, 15_000)
+  assert summary["cost"] == pytest.approx(4.0)
+  store.set_tariffs([], "€")
+  assert store.session_summary()["cost"] is None and store.list_sessions()[0]["cost"] is None
+
+
+def test_energy_cost_per_day_and_day_range():
+  store.set_tariffs([{"valid_from": "2026-01-01", "price": 0.20},
+                     {"valid_from": "2026-03-15", "price": 0.30}], "€")
+  for d, wh in [("2026-03-13", 0), ("2026-03-14", 10_000), ("2026-03-15", 20_000), ("2026-04-01", 25_000)]:
+    store.record_energy("A", 1, wh, day(d))
+  [march, april] = store.energy_usage("month")
+  assert march["energy_wh"] == 20_000 and march["cost"] == pytest.approx(10 * 0.20 + 10 * 0.30)
+  assert april["cost"] == pytest.approx(1.5)
+  ranged = store.energy_usage("day", first_day=day("2026-03-15"), last_day=day("2026-03-31"))
+  assert [(u["period"], u["energy_wh"]) for u in ranged] == [("2026-03-15", 10_000)]
+
+
+def test_add_update_remove_tariff():
+  store.add_tariff(day("2026-01-01"), 0.25)
+  store.add_tariff(day("2026-07-01"), 0.30)
+  with pytest.raises(ValueError):
+    store.add_tariff(day("2026-01-01"), 0.5)
+  store.update_tariff(day("2026-07-01"), day("2026-08-01"), 0.35)
+  assert store.tariffs() == [{"valid_from": "2026-01-01", "price": 0.25},
+                             {"valid_from": "2026-08-01", "price": 0.35}]
+  with pytest.raises(ValueError):
+    store.update_tariff(day("2026-08-01"), day("2026-01-01"), 0.35)
+  with pytest.raises(KeyError):
+    store.update_tariff(day("2026-07-01"), day("2026-07-01"), 1)
+  store.remove_tariff(day("2026-01-01"))
+  assert store.tariffs() == [{"valid_from": "2026-08-01", "price": 0.35}]
+  with pytest.raises(KeyError):
+    store.remove_tariff(day("2026-01-01"))

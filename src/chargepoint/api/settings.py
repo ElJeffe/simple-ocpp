@@ -76,6 +76,8 @@ class FiscalYearStart(BaseModel):
 class SettingsInfo(BaseModel):
   network: NetworkInfo
   fiscal_year_start: FiscalYearStart
+  currency: str
+  tariffs: list[store.Tariff]
 
 
 def settings_info() -> SettingsInfo:
@@ -88,6 +90,8 @@ def settings_info() -> SettingsInfo:
           overrides=store.network_overrides(),
       ),
       fiscal_year_start=FiscalYearStart(month=month, day=day),
+      currency=store.currency(),
+      tariffs=store.tariffs(),
   )
 
 

@@ -23,6 +23,7 @@ STATIC_PAGES = {
     "/tags": "tags.html",
     "/energy": "energy.html",
     "/sessions": "sessions.html",
+    "/prices": "prices.html",
     "/settings": "settings.html",
     "/login": "login.html",
     "/style.css": "style.css",

@@ -161,7 +161,7 @@ function renderSessions(sessions, chargers) {
     return;
   }
   el.innerHTML = `<table>
-    <tr><th>Started</th><th>Charger</th><th>Tag</th><th class="num">Duration</th><th class="num">Energy</th><th>Status</th></tr>
+    <tr><th>Started</th><th>Charger</th><th>Tag</th><th class="num">Duration</th><th class="num">Energy</th>${hasTariff ? `<th class="num">Cost</th>` : ""}<th>Status</th></tr>
     ${sessions.map(s => {
       const name = s.tag_name || findTag(s.id_tag)?.name;
       return `<tr>
@@ -170,6 +170,7 @@ function renderSessions(sessions, chargers) {
         <td>${name ? `<span class="tagname">${esc(name)}</span> ` : ""}<code class="rfid">${esc(s.id_tag || "—")}</code></td>
         <td class="num">${s.accepted && s.stop_reason !== NO_STOP_RECEIVED ? duration(s.started_at, s.stopped_at) : "—"}</td>
         <td class="num">${sessionEnergy(s, chargers)}</td>
+        ${hasTariff ? `<td class="num">${esc(money(s.cost, currency))}</td>` : ""}
         <td>${sessionStatus(s)}</td>
       </tr>`;
     }).join("")}
@@ -203,12 +204,22 @@ function sessionRange() {
 
 async function fetchSessions() {
   const [since, until] = sessionRange();
-  const params = new URLSearchParams({ limit: SESSION_LIMIT, offset: sessionView.page * SESSION_LIMIT });
-  if (since) params.set("since", since.toISOString());
-  if (until) params.set("until", until.toISOString());
-  const res = await fetch(`/api/sessions?${params}`);
+  const filter = new URLSearchParams();
+  if (since) filter.set("since", since.toISOString());
+  if (until) filter.set("until", until.toISOString());
+  const page = new URLSearchParams({ limit: SESSION_LIMIT, offset: sessionView.page * SESSION_LIMIT });
+  for (const [k, v] of filter) page.set(k, v);
+  const [res, summary] = await Promise.all([fetch(`/api/sessions?${page}`), api("GET", `/api/sessions/summary?${filter}`)]);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return { list: await res.json(), total: Number(res.headers.get("X-Total-Count") ?? 0) };
+  return { list: await res.json(), total: Number(res.headers.get("X-Total-Count") ?? 0), summary, filter };
+}
+
+function renderSessionSummary({ summary, filter }) {
+  const parts = [`<b>${summary.count}</b> session${summary.count === 1 ? "" : "s"}`];
+  if (summary.count) parts.push(`<b>${esc(kwh(summary.energy_wh))}</b>`);
+  if (summary.count && summary.cost != null) parts.push(`<b>${esc(money(summary.cost, summary.currency))}</b>`);
+  $("session-summary").innerHTML = parts.join(" · ");
+  $("session-csv").href = `/api/sessions.csv?${filter}`;
 }
 
 function renderPager(shown) {
@@ -221,6 +232,7 @@ function renderPager(shown) {
 }
 
 function setUpSessions() {
+  loadSettings();
   const changed = () => { sessionView.page = 0; refresh(); };
   $("session-period").addEventListener("change", e => {
     sessionView.preset = e.target.value;
@@ -299,6 +311,7 @@ async function refresh() {
       // A filter or deletion can leave us past the last page: go back.
       if (!sessions.list.length && sessionView.page > 0) { sessionView.page = 0; return refresh(); }
       sessionView.total = sessions.total;
+      renderSessionSummary(sessions);
       renderSessions(sessions.list, chargers);
       renderPager(sessions.list.length);
     }
@@ -450,12 +463,33 @@ function fiscalLabel(fy) {
   return fiscal.month === 1 && fiscal.day === 1 ? String(fy) : `${fy}–${String(fy + 1).slice(-2)}`;
 }
 
-async function loadFiscalYear() {
+// Fiscal year and prices, from the settings page.
+let currency = "€";
+let hasTariff = false;   // whether costs can be shown
+
+async function loadSettings() {
   try {
-    fiscal = (await api("GET", "/api/settings")).fiscal_year_start;
+    const settings = await api("GET", "/api/settings");
+    fiscal = settings.fiscal_year_start;
+    currency = settings.currency;
+    hasTariff = settings.tariffs.length > 0;
   } catch { return; }
-  energyView.fy = fiscalYearOf(today);
-  renderEnergy();
+  if ($("energy")) {
+    energyView.fy = fiscalYearOf(today);
+    renderEnergy();
+  }
+  if ($("sessions")) refresh();
+}
+
+// The days the current energy view covers, for the CSV download.
+function energyDays() {
+  const { period, year, month, fy } = energyView;
+  const iso = d => d.toLocaleDateString("sv");
+  if (period === "day") return [iso(new Date(year, month - 1, 1)), iso(new Date(year, month, 0))];
+  if (period === "month") {
+    return [iso(new Date(fy, fiscal.month - 1, fiscal.day)), iso(new Date(fy + 1, fiscal.month - 1, fiscal.day - 1))];
+  }
+  return [null, null];
 }
 
 function updateEnergyChargers(chargers) {
@@ -535,9 +569,18 @@ function renderEnergy() {
   });
   document.querySelectorAll("[data-period]").forEach(b =>
     b.setAttribute("aria-pressed", String(b.dataset.period === energyView.period)));
+  const costByKey = Object.fromEntries(energyData.map(e => [e.period, e.cost]));
+  const costs = buckets.map(b => costByKey[b.key] ?? null);
+  const totalCost = costs.reduce((a, c) => a + (c ?? 0), 0);
+  const costText = hasTariff ? ` · <b>${esc(money(totalCost, currency))}</b>` : "";
   document.getElementById("energy-total").innerHTML = hasData
-    ? `<b>${esc(kwh(total * 1000))}</b> used ${energyView.period === "year" ? "in total" : `in ${esc(energyRangeLabel())}`}`
+    ? `<b>${esc(kwh(total * 1000))}</b>${costText} used ${energyView.period === "year" ? "in total" : `in ${esc(energyRangeLabel())}`}`
     : `No energy readings for ${esc(energyRangeLabel())}`;
+  const [firstDay, lastDay] = energyDays();
+  const csv = new URLSearchParams({ period: energyView.period });
+  if (energyView.charger) csv.set("charger_id", energyView.charger);
+  if (firstDay) { csv.set("first_day", firstDay); csv.set("last_day", lastDay); }
+  $("energy-csv").href = `/api/energy.csv?${csv}`;
 
   const el = document.getElementById("energy-svg");
   const W = Math.max(300, el.clientWidth || 600), H = 240;
@@ -565,11 +608,13 @@ function renderEnergy() {
   });
   setHtml(el, svg + `</svg>`);  // unchanged data keeps hover and focus
   el.dataset.values = JSON.stringify(values);
+  el.dataset.costs = JSON.stringify(costs);
 
+  const costCell = (c, tag = "td") => hasTariff ? `<${tag} class="num">${esc(money(c, currency))}</${tag}>` : "";
   setHtml(document.getElementById("energy-table"), `<table>
-    <tr><th>${{ day: "Day", month: "Month", year: "Year" }[energyView.period]}</th><th class="num">Energy</th></tr>
-    ${buckets.map((b, i) => `<tr><td>${esc(b.title)}</td><td class="num">${b.key in byKey ? esc(kwh(values[i] * 1000)) : "—"}</td></tr>`).join("")}
-    <tr><th>Total</th><th class="num">${esc(kwh(total * 1000))}</th></tr>
+    <tr><th>${{ day: "Day", month: "Month", year: "Year" }[energyView.period]}</th><th class="num">Energy</th>${hasTariff ? `<th class="num">Cost</th>` : ""}</tr>
+    ${buckets.map((b, i) => `<tr><td>${esc(b.title)}</td><td class="num">${b.key in byKey ? esc(kwh(values[i] * 1000)) : "—"}</td>${costCell(b.key in byKey ? costs[i] : null)}</tr>`).join("")}
+    <tr><th>Total</th><th class="num">${esc(kwh(total * 1000))}</th>${costCell(totalCost, "th")}</tr>
   </table>`);
 }
 
@@ -582,7 +627,8 @@ function showEnergyTip(e) {
   const svg = hit.ownerSVGElement, scale = svg.clientWidth / svg.viewBox.baseVal.width;
   const bar = hit.nextElementSibling, box = bar.getBBox?.();
   const top = box && box.height ? box.y : Number(hit.getAttribute("y")) + Number(hit.getAttribute("height"));
-  tip.innerHTML = `${esc(b.title)} · <b>${esc(kwh(v * 1000))}</b>`;
+  const cost = JSON.parse(document.getElementById("energy-svg").dataset.costs)[i];
+  tip.innerHTML = `${esc(b.title)} · <b>${esc(kwh(v * 1000))}</b>` + (hasTariff && cost != null ? ` · ${esc(money(cost, currency))}` : "");
   tip.style.left = `${(Number(hit.getAttribute("x")) + Number(hit.getAttribute("width")) / 2) * scale}px`;
   tip.style.top = `${top * scale}px`;
   tip.style.display = "block";
@@ -619,7 +665,7 @@ document.querySelectorAll("[data-energy-nav]").forEach(b => b.addEventListener("
 }));
 
 window.addEventListener("resize", renderEnergy);
-loadFiscalYear();
+loadSettings();
 }
 
 if ($("energy")) setUpEnergy();

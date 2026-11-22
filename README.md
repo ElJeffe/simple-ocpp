@@ -12,7 +12,8 @@ Everything is stored in one SQLite file. Apart from a few Python packages, nothi
 - **Tag groups**: any card in a group can stop a session that another card in the same group started (OCPP `parentIdTag`).
 - **Charge sessions**: who charged where, when, for how long and how much energy, including refused attempts. You can page through them and filter by period.
 - **Energy**: a daily log of each charger's meter, with charts per day, month and (fiscal) year.
-- **Settings page**: listening addresses and ports, the start of the fiscal year, and a charger's meter reading from before it was connected here.
+- **Costs and export**: electricity prices that can change over time give every session and period a cost. Sessions and energy can be downloaded as CSV.
+- **Settings page**: password, listening addresses and ports, the start of the fiscal year, and a charger's meter reading from before it was connected here.
 
 ## Requirements
 
@@ -76,7 +77,7 @@ In the charger's OCPP settings (usually in its installer app or local web page),
 
 ## The web interface
 
-Open `http://<server-address>:8090`. The navigation bar at the top has five pages:
+Open `http://<server-address>:8090`. The navigation bar at the top has six pages:
 
 - **Chargers**: a card per charger.
   - **Lock / Unlock**: changes the cable lock. Unlock also releases a cable that is currently held.
@@ -84,8 +85,13 @@ Open `http://<server-address>:8090`. The navigation bar at the top has five page
   - **Last RFID**: the last card presented. Click **Register** next to an unknown card to allow it.
   - **Remove charger** (offline chargers only): removes the charger, either keeping its sessions and energy history (they still count in the totals) or deleting them.
 - **Tags**: the registered cards. Rename, authorize, block or remove them, and pick each card's group. Below that, add and delete groups. Deleting a group leaves its cards without a group.
-- **Energy**: energy used per day (one month at a time), per month (one fiscal year) or per fiscal year, for all chargers or one. Hover a bar for its value, or open **Show as table**.
-- **Sessions**: 20 sessions per page, newest first, with a period filter (today, last 7 days, this month, last month, this year, or a custom range). A session whose stop never arrived (for example because the charger rebooted) is ended automatically when a new session starts on that connector or the charger boots. It is shown as "no stop received", with estimated energy. If the stop still arrives later, it replaces the estimate.
+- **Energy**: energy used per day (one month at a time), per month (one fiscal year) or per fiscal year, for all chargers or one. Hover a bar for its value, or open **Show as table**. With a price set, costs are shown next to the energy. **Download CSV** saves the range shown.
+- **Sessions**: 20 sessions per page, newest first, with a period filter (today, last 7 days, this month, last month, this year, or a custom range). Above the table are the number of sessions, their energy and their cost for the whole filter. **Download CSV** saves all sessions in the filter, not just the page shown. A session whose stop never arrived (for example because the charger rebooted) is ended automatically when a new session starts on that connector or the charger boots. It is shown as "no stop received", with estimated energy. If the stop still arrives later, it replaces the estimate.
+- **Prices**: the electricity price per kWh, used for all costs.
+  - Add a price in cents per kWh (for example 30.5 for 30.5 c€/kWh), with the date it's valid from. Each price lasts until the next one starts, so when the price changes, add a new one and older energy keeps its old price.
+  - The table lists every price, with its validity period and which one applies today. Each row can be edited (price and start date) or removed.
+  - The earliest price also applies to everything before its date. A session's cost uses the price on the day it started; energy per day, month or year uses each day's own price. Without a price, no costs are shown.
+  - The currency symbol or code is set at the bottom of the page.
 - **Settings**: see below.
 
 The pages refresh every 3 seconds.

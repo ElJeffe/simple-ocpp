@@ -3,7 +3,7 @@
 // The navigation bar at the top of every page.
 const PAGES = [
   ["/", "Chargers"], ["/tags", "Tags"], ["/energy", "Energy"],
-  ["/sessions", "Sessions"], ["/settings", "Settings"],
+  ["/sessions", "Sessions"], ["/prices", "Prices"], ["/settings", "Settings"],
 ];
 
 async function renderNav() {
@@ -43,6 +43,10 @@ window.fetch = async (input, init) => {
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// A cost such as "€ 12.34"; "—" when there is none.
+const money = (value, currency) => value == null ? "—"
+  : `${currency}\u00a0${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const kwh = wh => `${(wh / 1000).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kWh`;
 

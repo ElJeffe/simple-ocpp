@@ -40,6 +40,8 @@ from .energy import (
 from .sessions import (
     NO_STOP_RECEIVED,
     SessionRecord,
+    SessionSummary,
+    session_summary,
     close_open_sessions,
     count_sessions,
     list_sessions,
@@ -59,6 +61,18 @@ from .settings import (
     set_fiscal_year_start,
     set_network_settings,
     set_setting,
+)
+from .tariffs import (
+    Tariff,
+    add_tariff,
+    currency,
+    local_day,
+    prices,
+    remove_tariff,
+    set_currency,
+    set_tariffs,
+    tariffs,
+    update_tariff,
 )
 from .tags import (
     GroupRecord,
@@ -81,6 +95,8 @@ from .tags import (
 __all__ = [
     "LOGIN_DAYS", "auth_enabled", "check_login_token", "check_password", "clear_password",
     "make_login_token", "set_password",
+    "SessionSummary", "session_summary", "Tariff", "currency", "local_day", "prices",
+    "set_tariffs", "tariffs", "add_tariff", "update_tariff", "remove_tariff", "set_currency",
     "NO_STOP_RECEIVED", "ChargerJSON", "ChargerState", "ConnectorInfo", "EnergyPeriod",
     "EnergyUsage", "GroupRecord", "InitialEnergy", "LockConfig", "NetworkSettings",
     "SessionRecord", "TagRecord", "active_network", "add_group", "add_tag",
