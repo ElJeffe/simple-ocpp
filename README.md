@@ -23,7 +23,7 @@ Everything is stored in one SQLite file. Apart from a few Python packages, nothi
 ## Installation
 
 ```sh
-git clone <this repository> simple-ocpp
+git clone https://github.com/ElJeffe/simple-ocpp.git simple-ocpp
 cd simple-ocpp
 ```
 
@@ -53,7 +53,7 @@ venv/bin/python src/main.py
 By default the server:
 
 - accepts chargers on port **9000**, on all interfaces;
-- serves the web interface on **http://<this-host>:8090**;
+- serves the web interface on `http://<this-host>:8090`;
 - keeps its database in **`/var/lib/simple-ocpp/simple-ocpp.db`**.
 
 That directory must exist and be writable by the user running the server. If it isn't, the server stops with a message saying so. To keep the data somewhere else, set `OCPP_DATA_DIR`:
@@ -71,7 +71,7 @@ Press **Ctrl-C** (or send SIGTERM, e.g. with `systemctl stop`) to stop. Chargers
 1. Install the project in `/opt/simple-ocpp` and create its venv:
 
    ```sh
-   sudo git clone <this repository> /opt/simple-ocpp
+   sudo git clone https://github.com/ElJeffe/simple-ocpp.git /opt/simple-ocpp
    cd /opt/simple-ocpp
    sudo python3 -m venv venv
    sudo venv/bin/pip install -r requirements.txt
@@ -135,7 +135,7 @@ docker run -d --name simple-ocpp --restart unless-stopped \
   simple-ocpp
 ```
 
-Instead of building it yourself, you can use the image published on Docker Hub (see [Releases](#releases)): in `compose.yaml`, replace `build: .` with `image: <dockerhub-user>/simple-ocpp:1`. `:1` follows all 1.x versions, and `:1.2.0` stays on one exact version. Then `docker compose pull && docker compose up -d` updates to the latest one.
+Instead of building it yourself, you can use the image published on Docker Hub: in `compose.yaml`, replace `build: .` with `image: jefsteelant/simple-ocpp:latest`. `:latest` follows the newest release, and a version tag such as `:1.2.0` stays on one exact version. Then `docker compose pull && docker compose up -d` updates to the latest one.
 
 Some things work differently in the container:
 
@@ -278,38 +278,3 @@ venv/bin/pyright         # type checking (strict)
 ```
 
 `start_test.sh` starts a test instance on port 9999, with its data in `/tmp/simple-ocpp`.
-
-### Releases
-
-Pushing a version tag publishes a Docker image to Docker Hub:
-
-```sh
-git tag v1.2.0
-git push origin v1.2.0
-```
-
-The GitHub Actions workflow in `.github/workflows/docker.yml` then:
-
-1. runs the tests and the type check, and stops if they fail;
-2. builds the image for `linux/amd64` (PCs and servers) and `linux/arm64` (Raspberry Pi 4/5);
-3. pushes it as `<dockerhub-user>/simple-ocpp:1.2.0`, `:1.2`, `:1` and `:latest` (pre-releases such as `v1.3.0-rc1` don't get the short tags or `latest`);
-4. copies this README to the Docker Hub page.
-
-It needs this one-time setup, under the GitHub repository's **Settings → Secrets and variables → Actions**:
-
-- a **variable** `DOCKERHUB_USERNAME` with your Docker Hub user name;
-- a **secret** `DOCKERHUB_TOKEN` with a Docker Hub access token (Docker Hub → Account settings → Personal access tokens) with *Read, Write, Delete* access. Updating the Docker Hub description needs the Delete scope; pushing images alone would only need Read & Write.
-
-Layout:
-
-```
-src/main.py                  starts the OCPP server and the web interface
-src/chargepoint/charger.py   OCPP message handling, one instance per connected charger
-src/chargepoint/config.py    paths, defaults and environment variables
-src/chargepoint/store/       state and the SQLite database, one module per area:
-                             database, chargers, tags (and groups), sessions, energy, settings
-src/chargepoint/api/         HTTP API and pages (FastAPI), one router per area:
-                             pages, chargers, tags, sessions, energy, settings
-src/static/                  web pages, styles and scripts
-tests/                       pytest tests
-```
