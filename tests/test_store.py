@@ -617,3 +617,27 @@ def test_backup_command(tmp_path):
   bad = subprocess.run([sys.executable, str(main), "--backup", "x", "--remove-password"],
                        env=env, capture_output=True, text=True, timeout=30)
   assert bad.returncode == 2 and "not allowed with" in bad.stderr
+
+
+@pytest.mark.parametrize("busy_var, label", [
+    ("OCPP_HTTP_PORT", "web interface"), ("OCPP_PORT", "charger server"),
+])
+def test_port_in_use_gives_a_clear_error(tmp_path, busy_var, label):
+  import os, socket, subprocess, sys
+  from pathlib import Path
+  with socket.socket() as busy, socket.socket() as other:
+    busy.bind(("127.0.0.1", 0))
+    busy.listen()
+    other.bind(("127.0.0.1", 0))
+    port, free = busy.getsockname()[1], other.getsockname()[1]
+    other_var = "OCPP_PORT" if busy_var == "OCPP_HTTP_PORT" else "OCPP_HTTP_PORT"
+    other.close()
+    env = {**os.environ, "OCPP_DATA_DIR": str(tmp_path), "OCPP_HOST": "127.0.0.1",
+           "OCPP_HTTP_HOST": "127.0.0.1", busy_var: str(port), other_var: str(free)}
+    main = Path(__file__).parent.parent / "src" / "main.py"
+    result = subprocess.run([sys.executable, str(main)], env=env, stdin=subprocess.DEVNULL,
+                            capture_output=True, text=True, timeout=20)
+  assert result.returncode == 1
+  assert f"Cannot start the {label}" in result.stderr
+  assert f"port {port} is already in use" in result.stderr and busy_var in result.stderr
+  assert "Traceback" not in result.stderr

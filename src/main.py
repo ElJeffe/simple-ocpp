@@ -4,8 +4,10 @@ import asyncio
 import contextlib
 import logging
 import argparse
+import errno
 import os
 import signal
+import socket
 import sys
 from pathlib import Path
 from collections.abc import Generator
@@ -36,6 +38,49 @@ class WebServer(uvicorn.Server):
   @contextlib.contextmanager
   def capture_signals(self) -> Generator[None]:
     yield
+
+
+def listen_failure(
+    what: str, host: str, port: int, host_var: str, port_var: str, error: OSError
+) -> SystemExit:
+  """A clear, traceback-free exit for an address the server can't listen on."""
+  if error.errno == errno.EADDRINUSE:
+    problem = (
+        f"port {port} is already in use on {host}.\n"
+        "Another program, or another copy of simple-ocpp, is listening on it."
+        f" To see which: ss -ltnp | grep :{port}"
+    )
+  elif error.errno == errno.EACCES:
+    problem = f"no permission to use port {port} on {host}."
+  elif error.errno == errno.EADDRNOTAVAIL:
+    problem = f"this computer has no address {host}."
+  else:
+    problem = f"could not listen on {host}:{port} ({error.strerror or error})."
+  return SystemExit(
+      f"Cannot start the {what}: {problem}\n"
+      f"Stop that program, or start with another address or port by setting"
+      f" {host_var} / {port_var}."
+  )
+
+
+def open_web_sockets(host: str, port: int) -> list[socket.socket]:
+  """Binds the web interface's address(es), so failures are ours to report."""
+  sockets: list[socket.socket] = []
+  try:
+    for family, kind, proto, _, address in socket.getaddrinfo(
+        host, port, type=socket.SOCK_STREAM, flags=socket.AI_PASSIVE
+    ):
+      sock = socket.socket(family, kind, proto)
+      sockets.append(sock)
+      sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+      if family == socket.AF_INET6:
+        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+      sock.bind(address)
+  except OSError:
+    for sock in sockets:
+      sock.close()
+    raise
+  return sockets
 
 
 async def main() -> bool:
@@ -72,16 +117,25 @@ async def main() -> bool:
     loop.add_signal_handler(sig, on_signal)
 
   try:
+    web_sockets = open_web_sockets(net["http_host"], net["http_port"])
+  except OSError as e:
+    raise listen_failure(
+        "web interface", net["http_host"], net["http_port"],
+        "OCPP_HTTP_HOST", "OCPP_HTTP_PORT", e,
+    ) from None
+
+  try:
     ocpp_server = await websockets.serve(
         on_connect, net["ocpp_host"], net["ocpp_port"],
         subprotocols=[Subprotocol("ocpp1.6")],
     )
   except OSError as e:
-    raise SystemExit(
-        f"Cannot listen for chargers on {net['ocpp_host']}:{net['ocpp_port']}:"
-        f" {e.strerror}. Fix it on the settings page, or override it with the"
-        " OCPP_HOST / OCPP_PORT environment variables."
-    ) from e
+    for sock in web_sockets:
+      sock.close()
+    raise listen_failure(
+        "charger server (OCPP)", net["ocpp_host"], net["ocpp_port"],
+        "OCPP_HOST", "OCPP_PORT", e,
+    ) from None
   logging.info(
       f"OCPP 1.6-J Server listening on ws://{net['ocpp_host']}:{net['ocpp_port']}"
   )
@@ -92,7 +146,7 @@ async def main() -> bool:
       )
   )
   logging.info(f"Web interface on http://{net['http_host']}:{net['http_port']}")
-  web_task = asyncio.create_task(web.serve())
+  web_task = asyncio.create_task(web.serve(sockets=web_sockets))
 
   # Run until a signal arrives, or until the web server stops on its own
   # (for example because its port is in use).
