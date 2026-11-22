@@ -6,16 +6,15 @@
 #
 # Or use compose.yaml. See "Running in Docker" in README.md.
 
-FROM python:3.14-slim
+FROM python:3.14-alpine AS build
 
 # tzdata: energy is logged per local day, so the container needs to know the
 # time zone (set TZ when running it).
-RUN apt-get update \
- && apt-get install -y --no-install-recommends tzdata \
- && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache tzdata
 
 # Run as an unprivileged user that owns only the data directory.
-RUN useradd --system --uid 10001 --home-dir /var/lib/simple-ocpp --shell /usr/sbin/nologin simple-ocpp \
+RUN addgroup -S -g 10001 simple-ocpp \
+ && adduser -S -D -H -u 10001 -G simple-ocpp -h /var/lib/simple-ocpp -s /sbin/nologin simple-ocpp \
  && mkdir -p /var/lib/simple-ocpp \
  && chown simple-ocpp:simple-ocpp /var/lib/simple-ocpp
 
@@ -24,7 +23,20 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ src/
 
-ENV PYTHONUNBUFFERED=1 \
+# Remove what the server never uses at runtime. The .pyc caches stay: without
+# them, Python recompiles everything at each start.
+RUN cd /usr/local/lib/python3.14 \
+ && rm -rf site-packages/pip* ensurepip idlelib tkinter turtledemo pydoc_data test \
+ && rm -f /usr/local/bin/pip* /usr/local/bin/idle* /usr/local/bin/pydoc*
+
+# Deleting files in a layer doesn't shrink an image, so copy the result into
+# a single fresh layer.
+FROM scratch
+COPY --from=build / /
+
+WORKDIR /app
+ENV PATH=/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin \
+    PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     OCPP_DATA_DIR=/var/lib/simple-ocpp \
     # Inside the container the server always listens on these; choose the
