@@ -1,5 +1,6 @@
 # pyright: standard
 import sqlite3
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from ocpp.v16.enums import AuthorizationStatus
@@ -641,3 +642,46 @@ def test_port_in_use_gives_a_clear_error(tmp_path, busy_var, label):
   assert f"Cannot start the {label}" in result.stderr
   assert f"port {port} is already in use" in result.stderr and busy_var in result.stderr
   assert "Traceback" not in result.stderr
+
+
+# --- Regressions ---
+
+
+@pytest.mark.parametrize("token", [
+    "9999999999.é", "².abc", "٣.abc", "9" * 5000 + ".abc", ".abc", "9999999999.",
+])
+def test_malformed_login_tokens_are_refused_without_error(token):
+  store.set_password("password123")
+  assert not store.check_login_token(token)
+
+
+def energy_row(charger_id="A", connector_id=1):
+  with store.db() as conn:
+    return [tuple(r) for r in conn.execute(
+        "SELECT day, energy_wh FROM energy_readings"
+        " WHERE charger_id = ? AND connector_id = ? ORDER BY day",
+        (charger_id, connector_id))]
+
+
+def test_late_reading_does_not_replace_a_newer_one():
+  now = datetime.now(timezone.utc) - timedelta(hours=1)
+  same_day = date(2026, 3, 1)
+  store.record_energy("A", 1, 5000, same_day, at=now.isoformat())
+  store.record_energy("A", 1, 4000, same_day, at=(now - timedelta(minutes=5)).isoformat())
+  assert [wh for _, wh in energy_row()] == [5000]
+  store.record_energy("A", 1, 6000, same_day, at=(now + timedelta(seconds=1)).isoformat())
+  assert [wh for _, wh in energy_row()] == [6000]
+
+
+def test_late_reading_counts_on_the_day_it_happened():
+  then = datetime.now(timezone.utc) - timedelta(days=3)
+  store.record_energy("A", 1, 4000, at=then.isoformat())
+  assert energy_row() == [(then.astimezone().date().isoformat(), 4000)]
+
+
+@pytest.mark.parametrize("timestamp", [
+    "1970-01-01T00:00:00Z", "2999-01-01T00:00:00Z", "not a date", "", None,
+])
+def test_reading_with_an_impossible_timestamp_counts_as_now(timestamp):
+  store.record_energy("A", 1, 1000, at=timestamp)
+  assert energy_row() == [(datetime.now().astimezone().date().isoformat(), 1000)]

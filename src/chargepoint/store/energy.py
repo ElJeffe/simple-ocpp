@@ -2,15 +2,18 @@
 
 import logging
 import sqlite3
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Literal, TypedDict
 
-from .database import db, now_iso
+from .database import db
 from .settings import fiscal_year_start
 from .tariffs import prices
 
 
 EnergyPeriod = Literal["day", "month", "year"]
+
+# How old a charger's queued reading can plausibly be.
+MAX_QUEUED_AGE = timedelta(days=31)
 
 
 PERIOD_LENGTH: dict[EnergyPeriod, int] = {"day": 10, "month": 7}
@@ -22,17 +25,43 @@ class EnergyUsage(TypedDict):
   cost: float | None  # each day at that day's tariff; None without tariffs
 
 
+def reading_time(timestamp: str | None) -> datetime:
+  """When a charger took a reading, or now if its timestamp can't be right.
+
+  A charger whose clock isn't set may report a date far in the past or in the
+  future; such a reading is treated as taken on arrival.
+  """
+  now = datetime.now(timezone.utc)
+  if not timestamp:
+    return now
+  try:
+    when = datetime.fromisoformat(timestamp).astimezone(timezone.utc)
+  except (ValueError, OverflowError):
+    return now
+  return when if now - MAX_QUEUED_AGE <= when <= now else now
+
+
 def record_energy(
-    charger_id: str, connector_id: int, energy_wh: float, today: date | None = None
+    charger_id: str, connector_id: int, energy_wh: float, today: date | None = None,
+    at: str | None = None,
 ) -> None:
-  """Stores a meter register reading as the latest one of today."""
-  day = (today or datetime.now().astimezone().date()).isoformat()
+  """Stores a meter register reading as the latest one of its day.
+
+  `at` is the charger's timestamp. A charger that was offline delivers its
+  queued messages late: they count on the day they happened, and never
+  replace a reading taken after them.
+  """
+  when = reading_time(at)
+  day = (today or when.astimezone().date()).isoformat()
   try:
     with db() as conn:
       conn.execute(
-          "INSERT OR REPLACE INTO energy_readings (charger_id, connector_id, day,"
-          " energy_wh, updated) VALUES (?, ?, ?, ?, ?)",
-          (charger_id, connector_id, day, energy_wh, now_iso()),
+          "INSERT INTO energy_readings (charger_id, connector_id, day, energy_wh,"
+          " updated) VALUES (?, ?, ?, ?, ?)"
+          " ON CONFLICT (charger_id, connector_id, day) DO UPDATE SET"
+          " energy_wh = excluded.energy_wh, updated = excluded.updated"
+          " WHERE julianday(excluded.updated) >= julianday(energy_readings.updated)",
+          (charger_id, connector_id, day, energy_wh, when.isoformat()),
       )
   except sqlite3.Error as e:  # never let this break the charger's request
     logging.error(f"Could not save energy reading for {charger_id}: {e}")

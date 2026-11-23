@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from typing import Any, cast
+from urllib.parse import unquote
 
 import websockets
 from ocpp.exceptions import OCPPError
@@ -28,6 +29,7 @@ from .store import (
     close_open_sessions,
     now_iso,
     record_energy,
+    registry,
     save_registry,
     session_connector,
     start_session,
@@ -176,6 +178,7 @@ class ChargePoint(cp):
   ):
     """Keeps the latest power (W) and energy register (Wh) per connector."""
     readings = ConnectorInfo()
+    energy_at: str | None = None
     for mv in meter_value:
       for sv in mv.get("sampled_value", []):
         measurand = sv.get("measurand", "Energy.Active.Import.Register")
@@ -190,11 +193,12 @@ class ChargePoint(cp):
           readings["power_w"] = value * 1000 if unit == "kW" else value
         elif measurand == "Energy.Active.Import.Register":
           readings["energy_wh"] = value * 1000 if unit == "kWh" else value
+          energy_at = mv.get("timestamp")
     if readings:
       readings["meter_updated"] = now_iso()
       self.state.connectors.setdefault(connector_id, {}).update(readings)
     if "energy_wh" in readings:
-      record_energy(self.id, connector_id, readings["energy_wh"])
+      record_energy(self.id, connector_id, readings["energy_wh"], at=energy_at)
     logging.log(TRACE, f"[{self.id}] Meter values connector {connector_id}: {readings}")
     self.touch()
     return call_result.MeterValues()
@@ -222,7 +226,7 @@ class ChargePoint(cp):
     self.touch()
     self.record_rfid(id_tag)
 
-    record_energy(self.id, connector_id, meter_start)
+    record_energy(self.id, connector_id, meter_start, at=timestamp)
     if closed := close_open_sessions(self.id, timestamp, connector_id, meter_start):
       logging.warning(
           f"[{self.id}] New session on connector {connector_id}; closed"
@@ -274,7 +278,7 @@ class ChargePoint(cp):
     ):
       logging.warning(f"[{self.id}] Stop for unknown transaction {transaction_id}")
     elif (connector_id := session_connector(self.id, transaction_id)) is not None:
-      record_energy(self.id, connector_id, meter_stop)
+      record_energy(self.id, connector_id, meter_stop, at=timestamp)
     # The session has ended either way; this only refreshes the charger's
     # cached information about the tag. No tag, no idTagInfo.
     return call_result.StopTransaction(
@@ -421,13 +425,29 @@ async def set_desired_lock(cp_id: str, locked: bool) -> str:
   return await charger.set_cable_lock(locked)
 
 
+def charger_id_from_path(path: str) -> str:
+  """The charger ID in a connection URL's path, e.g. /CP%201?x=1 -> CP 1.
+
+  A charger already known under the literal text keeps that ID, so its
+  history stays with it. An ID that would decode to a slash or a control
+  character stays encoded: those break the API's URLs or could forge log lines.
+  """
+  if (literal := path.strip("/")) in registry and literal:
+    return literal
+  encoded = path.partition("?")[0].strip("/")
+  if encoded in registry:
+    return encoded
+  decoded = unquote(encoded)
+  charger_id = decoded if decoded.isprintable() and "/" not in decoded else encoded
+  return charger_id or "UNKNOWN_CP"
+
+
 async def on_connect(websocket: websockets.ServerConnection) -> None:
   """Handles incoming WebSocket connections from chargers."""
-  # Extract Charge Point ID from the URL path (e.g., ws://localhost:9000/CP_001)
-  path = websocket.request.path if websocket.request else ""
-  charge_point_id = path.strip("/")
-  if not charge_point_id:
-    charge_point_id = "UNKNOWN_CP"
+  # The Charge Point ID is in the URL path (e.g., ws://localhost:9000/CP_001)
+  charge_point_id = charger_id_from_path(
+      websocket.request.path if websocket.request else ""
+  )
 
   logging.info(f"New charger connected: {charge_point_id}")
   cp_instance = ChargePoint(charge_point_id, websocket)

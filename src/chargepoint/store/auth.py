@@ -83,6 +83,11 @@ def check_login_token(token: str | None) -> bool:
   if stored is None or not token:
     return False
   expiry_text, _, signature = token.partition(".")
-  if not expiry_text.isdigit() or int(expiry_text) < time.time():
+  # The cookie is untrusted: int() fails on digits like "²" and on very long
+  # numbers, and compare_digest fails on non-ASCII text (but not on bytes).
+  if not (expiry_text.isascii() and expiry_text.isdigit()) or len(expiry_text) > 20:
     return False
-  return hmac.compare_digest(signature, _signature(int(expiry_text), stored["hash"]))
+  if int(expiry_text) < time.time():
+    return False
+  expected = _signature(int(expiry_text), stored["hash"])
+  return hmac.compare_digest(signature.encode(), expected.encode())

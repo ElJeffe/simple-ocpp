@@ -2,7 +2,9 @@
 """OCPP message handlers, called directly without a network connection."""
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 
+import pytest
 from ocpp.v16.enums import AuthorizationStatus
 
 from chargepoint import charger, store
@@ -308,3 +310,47 @@ async def test_failed_remote_stop_is_an_error(charge_point, caplog, monkeypatch)
 
 async def _no_wait():
   pass
+
+
+@pytest.mark.parametrize("path, expected", [
+    ("/CP_1", "CP_1"),
+    ("/CP_1/", "CP_1"),
+    ("/CP_1?token=x", "CP_1"),
+    ("/CP%201", "CP 1"),
+    ("/a%2Fb", "a%2Fb"),        # would break the API's URLs
+    ("/CP%0Afake", "CP%0Afake"),  # would forge log lines
+    ("/", "UNKNOWN_CP"),
+    ("/?x=1", "UNKNOWN_CP"),
+    ("", "UNKNOWN_CP"),
+])
+def test_charger_id_from_path(path, expected):
+  assert charger.charger_id_from_path(path) == expected
+
+
+@pytest.mark.parametrize("known", ["CP%201", "CP_1?x=1"])
+def test_known_charger_keeps_its_literal_id(known):
+  store.get_state(known)
+  assert charger.charger_id_from_path(f"/{known}") == known
+
+
+async def test_queued_stop_does_not_lower_todays_reading(charge_point):
+  now = datetime.now(timezone.utc)
+  await charge_point.on_meter_values(connector_id=1, meter_value=[{
+      "timestamp": now.isoformat(),
+      "sampled_value": [{"value": "9000", "unit": "Wh"}],
+  }])
+  store.add_tag("abc")
+  started = now - timedelta(minutes=30)
+  result = await charge_point.on_start_transaction(
+      connector_id=1, id_tag="abc", meter_start=7000, timestamp=started.isoformat()
+  )
+  await charge_point.on_stop_transaction(
+      meter_stop=8000, timestamp=(now - timedelta(minutes=10)).isoformat(),
+      transaction_id=result.transaction_id, id_tag="abc",
+  )
+  with store.db() as conn:
+    rows = conn.execute(
+        "SELECT energy_wh FROM energy_readings WHERE day = ?",
+        (now.astimezone().date().isoformat(),),
+    ).fetchall()
+  assert [r["energy_wh"] for r in rows] == [9000]
