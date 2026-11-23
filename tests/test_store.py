@@ -177,19 +177,6 @@ def test_list_sessions_newest_first_filtered_and_limited():
   assert [s["id"] for s in store.list_sessions("A", limit=2)] == [4, 3]
 
 
-def test_init_db_adds_missing_columns_to_old_database():
-  with store.db() as conn:
-    conn.execute("DROP TABLE chargers")
-    conn.execute("CREATE TABLE chargers (id TEXT PRIMARY KEY, desired_locked INTEGER"
-                 " NOT NULL DEFAULT 1, vendor TEXT NOT NULL DEFAULT '', model TEXT NOT"
-                 " NULL DEFAULT '', last_seen TEXT NOT NULL DEFAULT '', last_rfid TEXT"
-                 " NOT NULL DEFAULT '', last_rfid_at TEXT NOT NULL DEFAULT '')")
-    conn.execute("INSERT INTO chargers (id) VALUES ('OLD')")
-  store.init_db()
-  store.load_registry()
-  assert store.registry["OLD"].lock_on_plugin is True
-
-
 def test_tag_groups_share_one_spelling():
   store.add_group(" Family ")
   store.add_tag("a", parent_id_tag="family ")
@@ -255,32 +242,10 @@ def test_remove_group_ungroups_its_tags():
     store.remove_group("Family")
 
 
-def test_groups_only_stored_on_tags_get_created_on_load():
-  with store.db() as conn:
-    conn.execute("INSERT INTO tags (key, id_tag, parent_id_tag) VALUES ('A', 'a', 'Old')")
-  store.load_tags()
-  assert [g["name"] for g in store.sorted_groups()] == ["Old"]
-
-
 def test_stop_session_records_stopping_tag():
   tid = store.start_session("CP_1", 1, "a", 0, "t", True)
   store.stop_session("CP_1", tid, 10, "t", "Local", "b")
   assert store.list_sessions()[0]["stop_id_tag"] == "b"
-
-
-def test_init_db_adds_group_and_stop_tag_columns():
-  with store.db() as conn:
-    conn.execute("DROP TABLE tags")
-    conn.execute("CREATE TABLE tags (key TEXT PRIMARY KEY, id_tag TEXT NOT NULL,"
-                 " name TEXT NOT NULL DEFAULT '', authorized INTEGER NOT NULL"
-                 " DEFAULT 0, added TEXT NOT NULL DEFAULT '')")
-    conn.execute("INSERT INTO tags (key, id_tag) VALUES ('OLD', 'old')")
-    conn.execute("ALTER TABLE sessions DROP COLUMN stop_id_tag")
-  store.init_db()
-  store.load_tags()
-  assert store.tags["OLD"]["parent_id_tag"] == ""
-  tid = store.start_session("CP_1", 1, "a", 0, "t", True)
-  assert store.stop_session("CP_1", tid, 10, "t", None, "b")
 
 
 def usage(*args, **kwargs):
@@ -641,36 +606,6 @@ def test_port_in_use_gives_a_clear_error(tmp_path, busy_var, label):
   assert f"Cannot start the {label}" in result.stderr
   assert f"port {port} is already in use" in result.stderr and busy_var in result.stderr
   assert "Traceback" not in result.stderr
-
-
-def test_chargers_from_before_the_cable_lock_setting_keep_locking():
-  with store.db() as conn:
-    conn.execute("DROP TABLE chargers")
-    conn.execute("CREATE TABLE chargers (id TEXT PRIMARY KEY, desired_locked INTEGER NOT NULL"
-                 " DEFAULT 1, lock_on_plugin INTEGER NOT NULL DEFAULT 1, vendor TEXT NOT NULL"
-                 " DEFAULT '', model TEXT NOT NULL DEFAULT '', last_seen TEXT NOT NULL DEFAULT '',"
-                 " last_rfid TEXT NOT NULL DEFAULT '', last_rfid_at TEXT NOT NULL DEFAULT '')")
-    conn.execute("INSERT INTO chargers (id) VALUES ('OLD')")
-  store.init_db()
-  store.load_registry()
-  assert store.registry["OLD"].cable_lock is True
-  assert store.get_state("NEW").cable_lock is False
-  store.registry.clear()
-  store.load_registry()
-  assert store.registry["OLD"].cable_lock is True and store.registry["NEW"].cable_lock is False
-
-
-def test_charger_name_column_is_added_to_an_older_database():
-  with store.db() as conn:
-    conn.execute("DROP TABLE chargers")
-    conn.execute("CREATE TABLE chargers (id TEXT PRIMARY KEY, desired_locked INTEGER NOT NULL"
-                 " DEFAULT 1, lock_on_plugin INTEGER NOT NULL DEFAULT 1, vendor TEXT NOT NULL"
-                 " DEFAULT '', model TEXT NOT NULL DEFAULT '', last_seen TEXT NOT NULL DEFAULT '',"
-                 " last_rfid TEXT NOT NULL DEFAULT '', last_rfid_at TEXT NOT NULL DEFAULT '')")
-    conn.execute("INSERT INTO chargers (id) VALUES ('OLD')")
-  store.init_db()
-  store.load_registry()
-  assert store.registry["OLD"].name == ""
 
 
 def test_several_connectors_from_history_and_live_status():

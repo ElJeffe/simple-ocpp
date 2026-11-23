@@ -52,10 +52,6 @@ def load_tags() -> None:
         "parent_id_tag": row["parent_id_tag"],
         "toggle_lock": bool(row["toggle_lock"]),
     }
-  # Groups used to exist only as a value on tags; give those a groups row.
-  for tag in tags.values():
-    if tag["parent_id_tag"] and tag_key(tag["parent_id_tag"]) not in groups:
-      add_group(tag["parent_id_tag"])
 
 
 def save_tag(tag: TagRecord) -> None:

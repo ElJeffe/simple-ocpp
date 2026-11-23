@@ -106,19 +106,6 @@ CREATE TABLE IF NOT EXISTS energy_readings (
 """
 
 
-ADDED_COLUMNS = [  # (table, column, definition), oldest first
-    ("chargers", "lock_on_plugin", "INTEGER NOT NULL DEFAULT 1"),
-    ("tags", "parent_id_tag", "TEXT NOT NULL DEFAULT ''"),
-    ("sessions", "stop_id_tag", "TEXT"),
-    ("chargers", "name", "TEXT NOT NULL DEFAULT ''"),
-    ("chargers", "serial_number", "TEXT NOT NULL DEFAULT ''"),
-    ("tags", "toggle_lock", "INTEGER NOT NULL DEFAULT 0"),
-    # 1: chargers from before this setting keep the locking they had.
-    ("chargers", "cable_lock", "INTEGER NOT NULL DEFAULT 1"),
-    ("chargers", "lock_release_pending", "INTEGER NOT NULL DEFAULT 0"),
-]
-
-
 @contextmanager
 def db() -> Generator[sqlite3.Connection]:
   """A connection that commits on success and rolls back on error."""
@@ -130,12 +117,6 @@ def db() -> Generator[sqlite3.Connection]:
 def init_db() -> None:
   with db() as conn:
     conn.executescript(SCHEMA)
-    # Columns added after the first release; CREATE TABLE IF NOT EXISTS
-    # leaves older tables as they were.
-    for table, column, definition in ADDED_COLUMNS:
-      columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
-      if column not in columns:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def backup(target: Path) -> None:
