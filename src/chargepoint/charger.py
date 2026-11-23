@@ -102,6 +102,9 @@ class ChargePoint(cp):
     )
     self.state.vendor = charge_point_vendor
     self.state.model = charge_point_model
+    serial = kwargs.get("charge_point_serial_number") or kwargs.get("charge_box_serial_number")
+    if serial:  # optional in OCPP; keep what we know if a later boot omits it
+      self.state.serial_number = serial
     self.touch()
     save_registry()
     # A reboot ends any session; queued StopTransactions may still follow.

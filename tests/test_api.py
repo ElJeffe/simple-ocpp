@@ -406,6 +406,87 @@ async def test_session_summary_and_csv(client):
   assert (second[8], second[9], second[10]) == ("", "", "Refused")
 
 
+async def test_energy_csv_only_selected_periods(client):
+  from datetime import date
+  import csv, io
+  for d, wh in [(1, 0), (2, 1000), (3, 3000), (4, 4000)]:
+    store.record_energy("A", 1, wh, date(2026, 1, d))
+
+  async def periods(**params):
+    r = await client.get("/api/energy.csv", params={"period": "day", "decimal": ".", **params})
+    assert r.status_code == 200
+    return [row[0] for row in csv.reader(io.StringIO(r.text.lstrip("\ufeff")))][1:]
+
+  assert len(await periods()) == 4
+  assert await periods(selected=["2026-01-02", "2026-01-04"]) == ["2026-01-02", "2026-01-04"]
+  assert await periods(selected=["2099-01-01"]) == []
+
+
+def check_pdf_structure(content):
+  """Every cross-reference entry must point at the object it claims."""
+  assert content.startswith(b"%PDF-1.4") and content.endswith(b"%%EOF\n")
+  start = int(content.rsplit(b"startxref\n", 1)[1].split(b"\n")[0])
+  lines = content[start:].split(b"\n")
+  assert lines[0] == b"xref"
+  size = int(lines[1].split()[1])
+  for number in range(1, size):
+    offset = int(lines[2 + number].split()[0])
+    assert content[offset:].startswith(b"%d 0 obj" % number)
+  return content.count(b"/Type /Page /Parent")
+
+
+async def test_energy_pdf(client):
+  from datetime import date
+  charger = store.get_state("A")
+  charger.name, charger.vendor, charger.model = "Garage", "Acme (EU)", "Wallbox"
+  charger.serial_number = "SN-123"
+  store.add_tariff(date(2026, 1, 1), 0.30)
+  for d, wh in [(1, 0), (2, 1000), (3, 3000)]:
+    store.record_energy("A", 1, wh, date(2026, 1, d))
+  r = await client.get("/api/energy.pdf", params={
+      "period": "day", "charger_id": "A", "decimal": ",", "first_day": "2026-01-01",
+      "last_day": "2026-01-31", "selected": ["2026-01-03"],
+  })
+  assert r.status_code == 200 and r.headers["content-type"] == "application/pdf"
+  assert 'filename="energy-per-day.pdf"' in r.headers["content-disposition"]
+  assert check_pdf_structure(r.content) == 1
+  assert b"(Charger: Acme \\(EU\\) Wallbox)" in r.content  # parentheses are escaped
+  assert b"(Serial number: SN-123)" in r.content
+  assert b"Garage" not in r.content and b"(ID:" not in r.content
+  assert b"Period" not in r.content
+  assert b"(2026-01-03)" in r.content and b"(2026-01-02)" not in r.content
+  assert b"(2,000)" in r.content and b"(30,000)" in r.content and b"(0,60)" in r.content
+  assert b"(1,000)" not in r.content  # the day that was not selected
+  assert "Cost \\(€\\)".encode("cp1252") in r.content
+
+
+@pytest.mark.parametrize("vendor, model, serial, charger_id, expected, absent", [
+    ("Acme", "Mini", "", "A", [b"(Charger: Acme Mini)", b"(ID: A)"], [b"Serial"]),
+    ("", "", "", "A", [b"(ID: A)"], [b"Charger:", b"Serial"]),
+    ("", "", "S1", "A", [b"(Serial number: S1)"], [b"Charger:", b"(ID:"]),
+    ("Acme", "Mini", "S1", "REMOVED", [b"(ID: REMOVED)"], [b"Acme"]),
+    ("Acme", "Mini", "S1", None, [b"(Charger: All chargers)"], [b"Acme", b"(ID:"]),
+])
+async def test_energy_pdf_charger_identity(client, vendor, model, serial, charger_id, expected, absent):
+  charger = store.get_state("A")
+  charger.name, charger.vendor, charger.model, charger.serial_number = "Friendly", vendor, model, serial
+  params = {"charger_id": charger_id} if charger_id else {}
+  content = (await client.get("/api/energy.pdf", params={"decimal": ".", **params})).content
+  assert b"Friendly" not in content
+  assert all(text in content for text in expected)
+  assert not any(text in content for text in absent)
+
+
+async def test_energy_pdf_without_prices_and_over_several_pages(client):
+  from datetime import date, timedelta
+  for i in range(120):
+    store.record_energy("A", 1, i * 1000, date(2026, 1, 1) + timedelta(days=i))
+  r = await client.get("/api/energy.pdf", params={"decimal": "."})
+  assert check_pdf_structure(r.content) > 1
+  assert b"Price" not in r.content and b"Cost" not in r.content
+  assert b"(119.000)" in r.content
+
+
 async def test_energy_csv(client):
   from datetime import date
   store.set_tariffs([{"valid_from": "2026-01-01", "price": 0.5}], "€")

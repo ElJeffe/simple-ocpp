@@ -333,6 +333,23 @@ def test_known_charger_keeps_its_literal_id(known):
   assert charger.charger_id_from_path(f"/{known}") == known
 
 
+@pytest.mark.parametrize("reported, expected", [
+    ({"charge_point_serial_number": "CP1", "charge_box_serial_number": "BOX"}, "CP1"),
+    ({"charge_box_serial_number": "BOX"}, "BOX"),
+    ({}, "KEPT"),
+])
+async def test_boot_stores_the_serial_number(charge_point, monkeypatch, reported, expected):
+  monkeypatch.setattr(charge_point, "apply_settings_after_boot", lambda: asyncio.sleep(0))
+  store.get_state("CP_1").serial_number = "KEPT"
+  await charge_point.on_boot_notification(
+      charge_point_vendor="Acme", charge_point_model="Mini", **reported
+  )
+  await asyncio.sleep(0)
+  store.registry.clear()
+  store.load_registry()
+  assert store.registry["CP_1"].serial_number == expected
+
+
 async def test_queued_stop_does_not_lower_todays_reading(charge_point):
   now = datetime.now(timezone.utc)
   await charge_point.on_meter_values(connector_id=1, meter_value=[{

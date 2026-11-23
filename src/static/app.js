@@ -506,6 +506,8 @@ document.addEventListener("click", async e => {
 const today = new Date();
 // Days view: year + month. Months and Quarters views: shownYear.
 const energyView = { period: "day", charger: "", year: today.getFullYear(), month: today.getMonth() + 1, shownYear: today.getFullYear() };
+let energyChargerPicked = false;  // the user chose in the dropdown; leave it alone
+const energyUnchecked = new Set();  // table rows left out of the CSV export
 let energyData = [];   // [{period, energy_wh}] for energyView.period and charger
 const pad2 = n => String(n).padStart(2, "0");
 
@@ -535,6 +537,7 @@ function energyDays() {
 
 function updateEnergyChargers(chargers) {
   const sel = document.getElementById("energy-charger");
+  if (!energyChargerPicked && chargers.length === 1) energyView.charger = chargers[0].id;
   setHtml(sel, `<option value="">All chargers</option>` +
     chargers.map(c => `<option value="${esc(c.id)}">${esc(chargerName(c))}</option>`).join(""));
   sel.value = energyView.charger;
@@ -622,12 +625,6 @@ function renderEnergy() {
   document.getElementById("energy-total").innerHTML = hasData
     ? `<b>${esc(kwh(total * 1000))}</b>${costText} used ${energyView.period === "year" ? "in total" : `in ${esc(energyRangeLabel())}`}`
     : `No energy readings for ${esc(energyRangeLabel())}`;
-  const [firstDay, lastDay] = energyDays();
-  const csv = new URLSearchParams({ period: energyView.period, decimal: csvDecimal() });
-  if (energyView.charger) csv.set("charger_id", energyView.charger);
-  if (firstDay) { csv.set("first_day", firstDay); csv.set("last_day", lastDay); }
-  $("energy-csv").href = `/api/energy.csv?${csv}`;
-
   const el = document.getElementById("energy-svg");
   const W = Math.max(300, el.clientWidth || 600), H = 240;
   const m = { left: 44, right: 6, top: 28, bottom: 24 };
@@ -664,10 +661,40 @@ function renderEnergy() {
     return `<${tag} class="num">${esc(price)}</${tag}><${tag} class="num">${esc(money(c, currency))}</${tag}>`;
   };
   setHtml(document.getElementById("energy-table"), `<table>
-    <tr><th>${{ day: "Day", month: "Month", quarter: "Quarter", year: "Year" }[energyView.period]}</th><th class="num">Energy</th>${hasTariff ? `<th class="num">Price</th><th class="num">Cost</th>` : ""}</tr>
-    ${buckets.map((b, i) => `<tr><td>${esc(b.title)}</td><td class="num">${b.key in byKey ? esc(kwh(values[i] * 1000)) : "—"}</td>${costCells(values[i] * 1000, b.key in byKey ? costs[i] : null)}</tr>`).join("")}
-    <tr><th>Total</th><th class="num">${esc(kwh(total * 1000))}</th>${costCells(total * 1000, totalCost, "th")}</tr>
+    <tr><th class="pick"><input type="checkbox" id="energy-select-all" aria-label="Select all for export" title="Select all"></th><th>${{ day: "Day", month: "Month", quarter: "Quarter", year: "Year" }[energyView.period]}</th><th class="num">Energy</th>${hasTariff ? `<th class="num">Price</th><th class="num">Cost</th>` : ""}</tr>
+    ${buckets.map((b, i) => `<tr><td class="pick">${b.key in byKey ? `<input type="checkbox" data-export="${esc(b.key)}" aria-label="Export ${esc(b.title)}">` : ""}</td><td>${esc(b.title)}</td><td class="num">${b.key in byKey ? esc(kwh(values[i] * 1000)) : "—"}</td>${costCells(values[i] * 1000, b.key in byKey ? costs[i] : null)}</tr>`).join("")}
+    <tr><th class="pick"></th><th>Total</th><th class="num">${esc(kwh(total * 1000))}</th>${costCells(total * 1000, totalCost, "th")}</tr>
   </table>`);
+  updateEnergyExport();
+}
+
+// Applies the selection to the checkboxes (which a redraw resets) and the CSV link.
+function updateEnergyExport() {
+  const boxes = [...document.querySelectorAll("#energy-table input[data-export]")];
+  boxes.forEach(b => { b.checked = !energyUnchecked.has(b.dataset.export); });
+  const picked = boxes.filter(b => b.checked);
+  const all = $("energy-select-all");
+  all.disabled = !boxes.length;
+  all.checked = boxes.length > 0 && picked.length === boxes.length;
+  all.indeterminate = picked.length > 0 && picked.length < boxes.length;
+
+  const links = { csv: $("energy-csv"), pdf: $("energy-pdf") };
+  if (!picked.length) {
+    for (const link of Object.values(links)) {
+      link.removeAttribute("href");
+      link.title = "Select at least one row to export";
+    }
+    return;
+  }
+  const [firstDay, lastDay] = energyDays();
+  const query = new URLSearchParams({ period: energyView.period, decimal: csvDecimal() });
+  if (energyView.charger) query.set("charger_id", energyView.charger);
+  if (firstDay) { query.set("first_day", firstDay); query.set("last_day", lastDay); }
+  if (picked.length < boxes.length) picked.forEach(b => query.append("selected", b.dataset.export));
+  for (const [type, link] of Object.entries(links)) {
+    link.title = "";
+    link.href = `/api/energy.${type}?${query}`;
+  }
 }
 
 function showEnergyTip(e) {
@@ -692,7 +719,22 @@ const energyChart = $("energy-chart");
 ["mouseleave", "focusout"].forEach(t => energyChart.addEventListener(t, () =>
   document.getElementById("energy-tip").style.display = "none"));
 
+$("energy-table").addEventListener("change", e => {
+  const box = e.target;
+  if (box.id === "energy-select-all") {
+    document.querySelectorAll("#energy-table input[data-export]").forEach(b => {
+      if (box.checked) energyUnchecked.delete(b.dataset.export);
+      else energyUnchecked.add(b.dataset.export);
+    });
+  } else if (box.dataset.export !== undefined) {
+    if (box.checked) energyUnchecked.delete(box.dataset.export);
+    else energyUnchecked.add(box.dataset.export);
+  }
+  updateEnergyExport();
+});
+
 document.getElementById("energy-charger").addEventListener("change", e => {
+  energyChargerPicked = true;
   energyView.charger = e.target.value;
   loadEnergy();
 });

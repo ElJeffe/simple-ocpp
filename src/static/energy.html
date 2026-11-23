@@ -27,11 +27,14 @@
         <span id="energy-range"></span>
         <button class="small secondary" data-energy-nav="1" aria-label="Next">›</button>
       </div>
-      <a class="button-link" id="energy-csv" download>Download CSV</a>
     </div>
     <div class="energy-total" id="energy-total"></div>
     <div id="energy-chart"><div class="tooltip" id="energy-tip"></div><div id="energy-svg"></div></div>
-    <details class="table-view"><summary>Show as table</summary><div id="energy-table"></div></details>
+    <details class="table-view" open><summary>Table</summary><div id="energy-table"></div></details>
+    <div class="energy-export">
+      <a class="button-link" id="energy-csv" download>Download CSV</a>
+      <a class="button-link" id="energy-pdf" download>Download PDF</a>
+    </div>
   </div>
 </div>
 <script src="/app.js"></script>

@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS chargers (
   lock_on_plugin INTEGER NOT NULL DEFAULT 1,
   vendor         TEXT NOT NULL DEFAULT '',
   model          TEXT NOT NULL DEFAULT '',
+  serial_number  TEXT NOT NULL DEFAULT '',  -- as reported at boot, if any
   last_seen      TEXT NOT NULL DEFAULT '',
   last_rfid      TEXT NOT NULL DEFAULT '',
   last_rfid_at   TEXT NOT NULL DEFAULT ''
@@ -104,6 +105,7 @@ ADDED_COLUMNS = [  # (table, column, definition), oldest first
     ("tags", "parent_id_tag", "TEXT NOT NULL DEFAULT ''"),
     ("sessions", "stop_id_tag", "TEXT"),
     ("chargers", "name", "TEXT NOT NULL DEFAULT ''"),
+    ("chargers", "serial_number", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 

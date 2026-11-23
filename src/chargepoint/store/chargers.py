@@ -36,6 +36,7 @@ class ChargerJSON(TypedDict):
   last_message: str
   vendor: str
   model: str
+  serial_number: str
   connected: bool
   last_seen: str
   connectors: dict[str, ConnectorInfo]
@@ -56,6 +57,7 @@ class ChargerState:
   last_message: str = ""
   vendor: str = ""
   model: str = ""
+  serial_number: str = ""  # as reported at boot, if any
   connected: bool = False
   last_seen: str = ""
   connectors: dict[int, ConnectorInfo] = field(
@@ -75,6 +77,7 @@ class ChargerState:
         "last_message": self.last_message,
         "vendor": self.vendor,
         "model": self.model,
+        "serial_number": self.serial_number,
         "connected": self.connected,
         "last_seen": self.last_seen,
         "connectors": {str(k): v for k, v in sorted(self.connectors.items())},
@@ -97,6 +100,7 @@ def load_registry() -> None:
         lock_on_plugin=bool(row["lock_on_plugin"]),
         vendor=row["vendor"],
         model=row["model"],
+        serial_number=row["serial_number"],
         last_seen=row["last_seen"],
         last_rfid=row["last_rfid"],
         last_rfid_at=row["last_rfid_at"],
@@ -105,7 +109,7 @@ def load_registry() -> None:
 
 def save_registry() -> None:
   rows = [
-      (s.id, s.name, s.desired_locked, s.lock_on_plugin, s.vendor, s.model, s.last_seen,
+      (s.id, s.name, s.desired_locked, s.lock_on_plugin, s.vendor, s.model, s.serial_number, s.last_seen,
        s.last_rfid, s.last_rfid_at)
       for s in registry.values()
   ]
@@ -113,8 +117,8 @@ def save_registry() -> None:
     with db() as conn:
       conn.executemany(
           "INSERT OR REPLACE INTO chargers (id, name, desired_locked, lock_on_plugin,"
-          " vendor, model, last_seen, last_rfid, last_rfid_at)"
-          " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          " vendor, model, serial_number, last_seen, last_rfid, last_rfid_at)"
+          " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
           rows,
       )
   except sqlite3.Error as e:
