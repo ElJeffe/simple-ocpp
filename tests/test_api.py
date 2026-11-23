@@ -245,14 +245,6 @@ async def test_network_settings_api(client, monkeypatch):
   assert net["next_start"]["http_port"] == 8888 and net["saved"]["http_port"] == 8100
 
 
-async def test_fiscal_year_api(client):
-  assert (await client.get("/api/settings")).json()["fiscal_year_start"] == {"month": 1, "day": 1}
-  r = await client.post("/api/settings/fiscal-year", json={"month": 8, "day": 1})
-  assert r.json()["fiscal_year_start"] == {"month": 8, "day": 1}
-  assert (await client.post("/api/settings/fiscal-year", json={"month": 2, "day": 30})).status_code == 400
-  assert (await client.post("/api/settings/fiscal-year", json={"month": 0, "day": 1})).status_code == 422
-
-
 async def test_initial_energy_api(client):
   from datetime import date, timedelta
   store.get_state("CP_1")

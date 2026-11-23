@@ -11,9 +11,9 @@ Everything is stored in one SQLite file. Apart from a few Python packages, nothi
 - **RFID cards**: register cards, give them a name, authorize or block them. Unknown cards are refused, and the charger is told to stop.
 - **Tag groups**: any card in a group can stop a session that another card in the same group started (OCPP `parentIdTag`).
 - **Charge sessions**: who charged where, when, for how long and how much energy, including refused attempts. You can page through them and filter by period.
-- **Energy**: a daily log of each charger's meter, with charts per day, month and (fiscal) year.
+- **Energy**: a daily log of each charger's meter, with charts per day, month, quarter and year.
 - **Costs and export**: electricity prices that can change over time give every session and period a cost. Sessions and energy can be downloaded as CSV.
-- **Settings page**: password, listening addresses and ports, the start of the fiscal year, and a charger's meter reading from before it was connected here.
+- **Settings page**: password, listening addresses and ports, and a charger's meter reading from before it was connected here.
 
 ## Requirements
 
@@ -207,7 +207,7 @@ Open `http://<server-address>:8090`. The navigation bar at the top has seven pag
   - **Session in progress**: while a car is charging, the card shows who is charging, how long the session has been running, the energy and cost so far, and the current power. Energy and power are unknown while the charger is offline.
   - **Remove charger** (offline chargers only): removes the charger, either keeping its sessions and energy history (they still count in the totals) or deleting them.
 - **Tags**: the registered cards. Rename, authorize, block or remove them, and pick each card's group. Below that, add and delete groups. Deleting a group leaves its cards without a group.
-- **Energy**: energy used per day (one month at a time), per month (one fiscal year) or per fiscal year, for all chargers or one. Hover a bar for its value, or open **Show as table**. With a price set, costs are shown next to the energy. **Download CSV** saves the range shown.
+- **Energy**: energy used per day (one month at a time), per month or quarter (one year at a time) or per year, for all chargers or one. Hover a bar for its value, or open **Show as table**. With a price set, costs are shown next to the energy, and the table also shows the price per kWh, averaged over the row if the price changed during it. **Download CSV** saves the range shown.
 - **Sessions**: 20 sessions per page, newest first, with a period filter (today, last 7 days, this month, last month, this year, or a custom range). Above the table are the number of sessions, their energy and their cost for the whole filter. **Download CSV** saves all sessions in the filter, not just the page shown, with both the charger's ID and its name. A session whose stop never arrived (for example because the charger rebooted) is ended automatically when a new session starts on that connector or the charger boots. It is shown as "no stop received", with estimated energy. If the stop still arrives later, it replaces the estimate.
 - **Prices**: the electricity price per kWh, used for all costs.
   - Add a price in cents per kWh (for example 30.5 for 30.5 c€/kWh), with the date it's valid from. Each price lasts until the next one starts, so when the price changes, add a new one and older energy keeps its old price.
@@ -234,7 +234,6 @@ Most settings are on the **Settings** page and are stored in the database:
 - **Password**: optional. See [Security](#security).
 - **Network**: the address and port for charger connections and for the web interface. Changes take effect when the server restarts: click **Restart server** on the same page. The restart is refused if a new address or port can't be opened, and the page then takes you to the new address. `0.0.0.0` means all IPv4 interfaces, `::` all interfaces, and `127.0.0.1` only this computer.
 - **Localisation**: time format (24-hour or 12-hour), decimal separator and currency sign for all pages. CSV downloads use the separator shown on the page, also with **Browser default**; with a decimal comma, their columns are separated by semicolons.
-- **Fiscal year**: the day and month a year starts, used by the energy charts.
 - **Initial energy**: a charger's total meter reading on a given date before it was connected here.
 
 These environment variables override the settings page:

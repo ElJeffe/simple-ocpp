@@ -1,6 +1,5 @@
 """Settings stored as JSON key/value pairs. Not cached: they are rarely read."""
 
-import calendar
 import json
 import logging
 import os
@@ -118,21 +117,3 @@ def set_localisation(values: Localisation) -> None:
   set_setting("decimal_separator", values["decimal_separator"])
   set_currency(values["currency"])
   logging.info(f"Localisation saved: {values}")
-
-
-def fiscal_year_start() -> tuple[int, int]:
-  """(month, day) on which a fiscal year starts; 1 January by default."""
-  saved = get_setting("fiscal_year_start")
-  if isinstance(saved, dict):
-    saved = cast(dict[str, object], saved)
-    month, day = saved.get("month"), saved.get("day")
-    if isinstance(month, int) and isinstance(day, int):
-      return month, day
-  return 1, 1
-
-
-def set_fiscal_year_start(month: int, day: int) -> None:
-  """Raises ValueError for a date that doesn't exist every year."""
-  if not 1 <= month <= 12 or not 1 <= day <= calendar.monthrange(2001, month)[1]:
-    raise ValueError(f"{day}/{month} is not a date that exists every year")
-  set_setting("fiscal_year_start", {"month": month, "day": day})

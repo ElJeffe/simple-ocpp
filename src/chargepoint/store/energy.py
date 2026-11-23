@@ -6,21 +6,20 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Literal, TypedDict
 
 from .database import db
-from .settings import fiscal_year_start
 from .tariffs import prices
 
 
-EnergyPeriod = Literal["day", "month", "year"]
+EnergyPeriod = Literal["day", "month", "quarter", "year"]
 
 # How old a charger's queued reading can plausibly be.
 MAX_QUEUED_AGE = timedelta(days=31)
 
 
-PERIOD_LENGTH: dict[EnergyPeriod, int] = {"day": 10, "month": 7}
+PERIOD_LENGTH: dict[EnergyPeriod, int] = {"day": 10, "month": 7, "year": 4}
 
 
 class EnergyUsage(TypedDict):
-  period: str  # "2026-11-22", "2026-11" or "2026"
+  period: str  # "2026-11-22", "2026-11", "2026-Q1" or "2026"
   energy_wh: float
   cost: float | None  # each day at that day's tariff; None without tariffs
 
@@ -67,16 +66,11 @@ def record_energy(
     logging.error(f"Could not save energy reading for {charger_id}: {e}")
 
 
-def fiscal_year(day: date, start: tuple[int, int]) -> int:
-  """The calendar year in which the fiscal year containing `day` starts."""
-  return day.year if (day.month, day.day) >= start else day.year - 1
-
-
 def energy_usage(
     period: EnergyPeriod, charger_id: str | None = None,
     first_day: date | None = None, last_day: date | None = None,
 ) -> list[EnergyUsage]:
-  """Energy used per day, month or fiscal year, oldest first.
+  """Energy used per day, month, quarter or year, oldest first.
 
   first_day and last_day (both included) limit which days are counted.
 
@@ -90,7 +84,7 @@ def energy_usage(
   at the start of its day, on the charger's lowest-numbered meter, so the
   energy used between then and the first real reading is included.
 
-  Years are fiscal years, keyed by the calendar year they start in.
+  Years and quarters follow the calendar.
   """
   query = "SELECT charger_id, connector_id, day, energy_wh FROM energy_readings"
   params: list[object] = []
@@ -117,7 +111,6 @@ def energy_usage(
     meter = (cp_id, own[0] if own else 1)
     meters.setdefault(meter, []).append((initial["day"], 0, initial["energy_wh"]))
 
-  start = fiscal_year_start()
   price_list = prices()
   totals: dict[str, float] = {}
   costs: dict[str, float] = {}
@@ -129,8 +122,8 @@ def energy_usage(
       when = date.fromisoformat(day)
       if (first_day and when < first_day) or (last_day and when > last_day):
         continue
-      if period == "year":
-        key = str(fiscal_year(when, start))
+      if period == "quarter":
+        key = f"{when.year}-Q{(when.month + 2) // 3}"
       else:
         key = day[: PERIOD_LENGTH[period]]
       totals[key] = totals.get(key, 0.0) + used

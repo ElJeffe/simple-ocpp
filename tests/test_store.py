@@ -340,6 +340,31 @@ def test_energy_ignores_connector_0_when_connectors_report():
   assert usage("day")[-1] == {"period": "2026-03-02", "energy_wh": 1030}
 
 
+@pytest.mark.parametrize("when, expected", [
+    ("2026-01-01", "2026-Q1"), ("2026-03-31", "2026-Q1"), ("2026-04-01", "2026-Q2"),
+    ("2026-06-30", "2026-Q2"), ("2026-07-01", "2026-Q3"), ("2026-09-30", "2026-Q3"),
+    ("2026-10-01", "2026-Q4"), ("2026-12-31", "2026-Q4"),
+])
+def test_energy_quarter_of_a_day(when, expected):
+  store.record_energy("A", 1, 0, day("2025-12-31"))
+  store.record_energy("A", 1, 1000, day(when))
+  assert usage("quarter")[-1] == {"period": expected, "energy_wh": 1000}
+
+
+def test_energy_usage_per_quarter_and_year():
+  for d, wh in [("2025-12-31", 0), ("2026-01-01", 1000), ("2026-03-31", 3000),
+                ("2026-07-01", 3500), ("2027-01-01", 4000)]:
+    store.record_energy("A", 1, wh, day(d))
+  assert usage("quarter") == [
+      {"period": "2025-Q4", "energy_wh": 0}, {"period": "2026-Q1", "energy_wh": 3000},
+      {"period": "2026-Q3", "energy_wh": 500}, {"period": "2027-Q1", "energy_wh": 500},
+  ]
+  assert usage("year") == [
+      {"period": "2025", "energy_wh": 0}, {"period": "2026", "energy_wh": 3500},
+      {"period": "2027", "energy_wh": 500},
+  ]
+
+
 # --- Settings ---
 
 
@@ -369,35 +394,6 @@ def test_malformed_saved_network_settings_fall_back_to_defaults():
   assert store.saved_network_settings() == {
       "ocpp_host": "0.0.0.0", "ocpp_port": 9000, "http_host": "0.0.0.0", "http_port": 8090,
   }
-
-
-def test_fiscal_year_start():
-  assert store.fiscal_year_start() == (1, 1)
-  store.set_fiscal_year_start(8, 15)
-  assert store.fiscal_year_start() == (8, 15)
-  for month, d in ((2, 29), (4, 31), (13, 1), (1, 0)):
-    with pytest.raises(ValueError):
-      store.set_fiscal_year_start(month, d)
-  assert store.fiscal_year_start() == (8, 15)
-
-
-def test_fiscal_year_of_a_day():
-  assert store.fiscal_year(day("2026-08-14"), (8, 15)) == 2025
-  assert store.fiscal_year(day("2026-08-15"), (8, 15)) == 2026
-  assert store.fiscal_year(day("2026-01-01"), (1, 1)) == 2026
-
-
-def test_yearly_energy_uses_fiscal_years():
-  store.set_fiscal_year_start(7, 1)
-  for d, wh in [("2025-06-01", 0), ("2025-06-30", 1000), ("2025-07-01", 1500),
-                ("2026-06-30", 4500), ("2026-07-01", 5000)]:
-    store.record_energy("A", 1, wh, day(d))
-  assert usage("year") == [
-      {"period": "2024", "energy_wh": 1000},   # 2024-25: until 30 June 2025
-      {"period": "2025", "energy_wh": 3500},
-      {"period": "2026", "energy_wh": 500},
-  ]
-  assert usage("month")[0] == {"period": "2025-06", "energy_wh": 1000}
 
 
 # --- Initial energy ---

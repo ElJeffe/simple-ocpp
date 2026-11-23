@@ -18,7 +18,7 @@ async def energy(
     period: store.EnergyPeriod = "day", charger_id: str | None = None,
     first_day: date | None = FIRST, last_day: date | None = LAST,
 ) -> list[store.EnergyUsage]:
-  """Energy used and its cost per day, month or fiscal year, by one charger
+  """Energy used and its cost per day, month, quarter or year, by one charger
   or all of them."""
   return store.energy_usage(period, charger_id, first_day, last_day)
 
@@ -29,11 +29,10 @@ async def energy_csv(
     first_day: date | None = FIRST, last_day: date | None = LAST,
     decimal: CsvDecimal | None = DECIMAL,
 ) -> Response:
-  """The same, as a CSV download. Fiscal years are labelled by the calendar
-  year they start in."""
+  """The same, as a CSV download."""
   usage = store.energy_usage(period, charger_id, first_day, last_day)
   separator = csv_decimal(decimal)
-  label = {"day": "Day", "month": "Month", "year": "Fiscal year"}[period]
+  label = {"day": "Day", "month": "Month", "quarter": "Quarter", "year": "Year"}[period]
   return csv_response(
       f"energy-per-{period}.csv",
       [label, "Energy (kWh)", f"Cost ({store.currency()})"],

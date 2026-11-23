@@ -1,4 +1,4 @@
-"""The settings page: network, fiscal year and initial energy."""
+"""The settings page: network and initial energy."""
 
 import asyncio
 import ipaddress
@@ -46,11 +46,6 @@ class NetworkUpdate(Model):
     return self
 
 
-class FiscalYearUpdate(Model):
-  month: int = Field(ge=1, le=12)
-  day: int = Field(ge=1, le=31)
-
-
 class InitialEnergyUpdate(Model):
   day: date
   energy_wh: float = Field(ge=0)
@@ -70,20 +65,13 @@ class NetworkInfo(BaseModel):
   overrides: dict[str, str]  # setting -> environment variable that sets it
 
 
-class FiscalYearStart(BaseModel):
-  month: int
-  day: int
-
-
 class SettingsInfo(BaseModel):
   network: NetworkInfo
-  fiscal_year_start: FiscalYearStart
   currency: str
   tariffs: list[store.Tariff]
 
 
 def settings_info() -> SettingsInfo:
-  month, day = store.fiscal_year_start()
   return SettingsInfo(
       network=NetworkInfo(
           saved=store.saved_network_settings(),
@@ -91,7 +79,6 @@ def settings_info() -> SettingsInfo:
           next_start=store.network_settings(),
           overrides=store.network_overrides(),
       ),
-      fiscal_year_start=FiscalYearStart(month=month, day=day),
       currency=store.currency(),
       tariffs=store.tariffs(),
   )
@@ -183,15 +170,6 @@ async def update_network(body: NetworkUpdate) -> SettingsInfo:
       "ocpp_host": body.ocpp_host, "ocpp_port": body.ocpp_port,
       "http_host": body.http_host, "http_port": body.http_port,
   })
-  return settings_info()
-
-
-@router.post("/api/settings/fiscal-year")
-async def update_fiscal_year(body: FiscalYearUpdate) -> SettingsInfo:
-  try:
-    store.set_fiscal_year_start(body.month, body.day)
-  except ValueError as e:
-    raise HTTPException(400, str(e))
   return settings_info()
 
 

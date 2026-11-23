@@ -504,23 +504,12 @@ document.addEventListener("click", async e => {
 // --- Energy chart ---------------------------------------------------------------
 
 const today = new Date();
-let fiscal = { month: 1, day: 1 };  // fiscal year start, from the settings
-// Days view: year + month. Months view: fy = calendar year the fiscal year starts in.
-const energyView = { period: "day", charger: "", year: today.getFullYear(), month: today.getMonth() + 1, fy: today.getFullYear() };
+// Days view: year + month. Months and Quarters views: shownYear.
+const energyView = { period: "day", charger: "", year: today.getFullYear(), month: today.getMonth() + 1, shownYear: today.getFullYear() };
 let energyData = [];   // [{period, energy_wh}] for energyView.period and charger
 const pad2 = n => String(n).padStart(2, "0");
 
-function fiscalYearOf(d) {
-  const started = d.getMonth() + 1 > fiscal.month || (d.getMonth() + 1 === fiscal.month && d.getDate() >= fiscal.day);
-  return started ? d.getFullYear() : d.getFullYear() - 1;
-}
-
-// "2026" for calendar years, "2025–26" when the fiscal year spans two years.
-function fiscalLabel(fy) {
-  return fiscal.month === 1 && fiscal.day === 1 ? String(fy) : `${fy}–${String(fy + 1).slice(-2)}`;
-}
-
-// Fiscal year and prices, from the settings page.
+// Prices, from the settings page.
 let currency = "€";
 let hasTariff = false;   // whether costs can be shown
 
@@ -528,25 +517,19 @@ async function loadSettings() {
   await localisationReady;
   try {
     const settings = await api("GET", "/api/settings");
-    fiscal = settings.fiscal_year_start;
     currency = settings.currency;
     hasTariff = settings.tariffs.length > 0;
   } catch { return; }
-  if ($("energy")) {
-    energyView.fy = fiscalYearOf(today);
-    renderEnergy();
-  }
+  if ($("energy")) renderEnergy();
   if ($("sessions")) refresh();
 }
 
 // The days the current energy view covers, for the CSV download.
 function energyDays() {
-  const { period, year, month, fy } = energyView;
+  const { period, year, month, shownYear } = energyView;
   const iso = d => d.toLocaleDateString("sv");
   if (period === "day") return [iso(new Date(year, month - 1, 1)), iso(new Date(year, month, 0))];
-  if (period === "month") {
-    return [iso(new Date(fy, fiscal.month - 1, fiscal.day)), iso(new Date(fy + 1, fiscal.month - 1, fiscal.day - 1))];
-  }
+  if (period === "month" || period === "quarter") return [`${shownYear}-01-01`, `${shownYear}-12-31`];
   return [null, null];
 }
 
@@ -581,23 +564,28 @@ function energyBuckets() {
         title: d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" }) };
     });
   }
-  if (period === "month") {  // the 12 calendar months from the fiscal start month
+  if (period === "month") {
     return Array.from({ length: 12 }, (_, i) => {
-      const d = new Date(energyView.fy, fiscal.month - 1 + i, 1);
+      const d = new Date(energyView.shownYear, i, 1);
       return { key: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`, label: d.toLocaleDateString(undefined, { month: "short" }),
         title: d.toLocaleDateString(undefined, { month: "long", year: "numeric" }) };
     });
   }
-  const current = fiscalYearOf(today);
+  if (period === "quarter") {
+    const y = energyView.shownYear, show = m => new Date(y, m, 1).toLocaleDateString(undefined, { month: "short" });
+    return Array.from({ length: 4 }, (_, i) => ({ key: `${y}-Q${i + 1}`, label: `Q${i + 1}`,
+      title: `Q${i + 1} (${show(3 * i)} – ${show(3 * i + 2)} ${y})` }));
+  }
+  const current = today.getFullYear();
   const first = Math.min(current, ...energyData.map(e => Number(e.period)));
   return Array.from({ length: current - first + 1 }, (_, i) =>
-    ({ key: String(first + i), label: fiscalLabel(first + i), title: fiscalLabel(first + i) }));
+    ({ key: String(first + i), label: String(first + i), title: String(first + i) }));
 }
 
 function energyRangeLabel() {
   const { period, year, month } = energyView;
   if (period === "day") return new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
-  return period === "month" ? fiscalLabel(energyView.fy) : "All years";
+  return period === "year" ? "All years" : String(energyView.shownYear);
 }
 
 // Round axis steps: 1, 2, 2.5 or 5 times a power of ten.
@@ -622,7 +610,7 @@ function renderEnergy() {
   document.querySelectorAll("[data-energy-nav]").forEach(b => {
     const { period, year, month } = energyView;
     const atEnd = period === "day" ? year === today.getFullYear() && month === today.getMonth() + 1
-      : energyView.fy === fiscalYearOf(today);
+      : energyView.shownYear === today.getFullYear();
     b.disabled = period === "year" || (b.dataset.energyNav === "1" && atEnd);
   });
   document.querySelectorAll("[data-period]").forEach(b =>
@@ -668,11 +656,17 @@ function renderEnergy() {
   el.dataset.values = JSON.stringify(values);
   el.dataset.costs = JSON.stringify(costs);
 
-  const costCell = (c, tag = "td") => hasTariff ? `<${tag} class="num">${esc(money(c, currency))}</${tag}>` : "";
+  // The price a cost works out to (an average if the price changed), and the cost.
+  const costCells = (wh, c, tag = "td") => {
+    if (!hasTariff) return "";
+    const cents = wh > 0 && c != null ? c / wh * 1e5 : null;
+    const price = cents == null ? "—" : `${formatNumber(cents, { maximumFractionDigits: 3 })} c${currency}/kWh`;
+    return `<${tag} class="num">${esc(price)}</${tag}><${tag} class="num">${esc(money(c, currency))}</${tag}>`;
+  };
   setHtml(document.getElementById("energy-table"), `<table>
-    <tr><th>${{ day: "Day", month: "Month", year: "Year" }[energyView.period]}</th><th class="num">Energy</th>${hasTariff ? `<th class="num">Cost</th>` : ""}</tr>
-    ${buckets.map((b, i) => `<tr><td>${esc(b.title)}</td><td class="num">${b.key in byKey ? esc(kwh(values[i] * 1000)) : "—"}</td>${costCell(b.key in byKey ? costs[i] : null)}</tr>`).join("")}
-    <tr><th>Total</th><th class="num">${esc(kwh(total * 1000))}</th>${costCell(totalCost, "th")}</tr>
+    <tr><th>${{ day: "Day", month: "Month", quarter: "Quarter", year: "Year" }[energyView.period]}</th><th class="num">Energy</th>${hasTariff ? `<th class="num">Price</th><th class="num">Cost</th>` : ""}</tr>
+    ${buckets.map((b, i) => `<tr><td>${esc(b.title)}</td><td class="num">${b.key in byKey ? esc(kwh(values[i] * 1000)) : "—"}</td>${costCells(values[i] * 1000, b.key in byKey ? costs[i] : null)}</tr>`).join("")}
+    <tr><th>Total</th><th class="num">${esc(kwh(total * 1000))}</th>${costCells(total * 1000, totalCost, "th")}</tr>
   </table>`);
 }
 
@@ -717,7 +711,7 @@ document.querySelectorAll("[data-energy-nav]").forEach(b => b.addEventListener("
     energyView.year = d.getFullYear();
     energyView.month = d.getMonth() + 1;
   } else {
-    energyView.fy += delta;
+    energyView.shownYear += delta;
   }
   renderEnergy();
 }));
