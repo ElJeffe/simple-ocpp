@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from chargepoint import api, store
+from chargepoint.api import export
 
 
 @pytest.fixture
@@ -746,3 +747,24 @@ async def test_own_pages_and_scripts_can_change_things(client, headers):
 async def test_other_sites_can_still_link_to_pages(client):
   r = await client.get("/api/chargers", headers={"Sec-Fetch-Site": "cross-site"})
   assert r.status_code == 200
+
+
+@pytest.mark.parametrize("value, expected", [
+    ("=1+1", "'=1+1"),
+    ("+cmd", "'+cmd"),
+    ("-2+3", "'-2+3"),
+    ("@SUM(A1)", "'@SUM(A1)"),
+    ("\t=1", "'\t=1"),
+    ("-1.5", "-1.5"),  # a real number stays a number
+    ("-1,5", "-1,5"),
+    ("ABC=1", "ABC=1"),
+    (12, 12),
+])
+def test_csv_cells_cannot_be_formulas(value, expected):
+  assert export.safe_cell(value) == expected
+
+
+async def test_sessions_csv_neutralizes_a_formula_in_a_tag(client):
+  store.start_session("CP_1", 1, "=HYPERLINK(1)", 0, "2026-01-01T00:00:00+00:00", True)
+  text = (await client.get("/api/sessions.csv")).text
+  assert "'=HYPERLINK(1)" in text

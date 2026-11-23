@@ -5,6 +5,7 @@
 
 import csv
 import io
+import re
 from collections.abc import Iterable, Sequence
 from datetime import datetime
 from typing import Literal
@@ -25,6 +26,21 @@ def csv_decimal(requested: CsvDecimal | None) -> CsvDecimal:
   return "," if store.localisation()["decimal_separator"] == "," else "."
 
 
+PLAIN_NUMBER = re.compile(r"-?\d+([.,]\d+)?")
+
+
+def safe_cell(value: object) -> object:
+  """Text that a spreadsheet would run as a formula, made harmless.
+
+  RFID tags and charger IDs come from whatever connects to the charger port.
+  A leading apostrophe makes spreadsheet programs treat the cell as text.
+  """
+  if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+    if not PLAIN_NUMBER.fullmatch(value):
+      return "'" + value
+  return value
+
+
 def csv_response(
     filename: str, header: list[str], rows: Iterable[Sequence[object]], decimal: CsvDecimal
 ) -> Response:
@@ -37,7 +53,7 @@ def csv_response(
   out = io.StringIO()
   writer = csv.writer(out, delimiter=";" if decimal == "," else ",")
   writer.writerow(header)
-  writer.writerows(rows)
+  writer.writerows([safe_cell(cell) for cell in row] for row in rows)
   return Response(
       "﻿" + out.getvalue(), media_type="text/csv; charset=utf-8",
       headers={"Content-Disposition": f'attachment; filename="{filename}"'},
