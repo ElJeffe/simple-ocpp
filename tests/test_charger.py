@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jef Steelant
+# SPDX-License-Identifier: GPL-3.0-only
+
 # pyright: standard
 """OCPP message handlers, called directly without a network connection."""
 

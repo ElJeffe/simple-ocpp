@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jef Steelant
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Electricity prices: a price per kWh valid from a date until the next one."""
 
 from datetime import date

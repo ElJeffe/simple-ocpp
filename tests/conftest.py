@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jef Steelant
+# SPDX-License-Identifier: GPL-3.0-only
+
 # pyright: standard
 """Shared fixtures. Every test gets empty state and its own database."""
 

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jef Steelant
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Lets the web interface ask the running server to restart itself.
 
 main() registers a handler at startup; without one (for example in tests,

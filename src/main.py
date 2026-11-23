@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jef Steelant
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Starts the OCPP server (for chargers) and the web interface (for people)."""
 
 import asyncio

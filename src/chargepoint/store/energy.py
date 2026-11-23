@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jef Steelant
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Energy: the daily meter log, usage per period and initial readings."""
 
 import logging

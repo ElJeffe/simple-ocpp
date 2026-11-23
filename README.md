@@ -313,3 +313,9 @@ venv/bin/pyright         # type checking (strict)
 ```
 
 `start_test.sh` starts a test instance on port 9999, with its data in `/tmp/simple-ocpp`.
+
+## License
+
+Copyright (C) 2026 Jef Steelant
+
+simple-ocpp is free software, licensed under version 3 of the GNU General Public License (`GPL-3.0-only`). See [LICENSE](https://github.com/ElJeffe/simple-ocpp/blob/main/LICENSE) for the full text.

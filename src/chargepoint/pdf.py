@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jef Steelant
+# SPDX-License-Identifier: GPL-3.0-only
+
 """A small PDF writer for one-table reports, so exports need no extra package.
 
 Uses the Helvetica font every PDF viewer has built in. That font covers

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jef Steelant
+# SPDX-License-Identifier: GPL-3.0-only
+
 """The optional password: login, logout, setting it, and the check that
 guards every other page and API call while one is set."""
 

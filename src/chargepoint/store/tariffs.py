@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jef Steelant
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Electricity prices, used to put a cost on sessions and energy.
 
 A tariff is a price per kWh valid from a date until the next tariff's date.

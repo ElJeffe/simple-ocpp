@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jef Steelant
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Charge sessions (OCPP transactions). Not cached in memory: they are only
 written by OCPP messages and read by the web interface, and the table grows
 without bound."""

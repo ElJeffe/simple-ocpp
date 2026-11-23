@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jef Steelant
+# SPDX-License-Identifier: GPL-3.0-only
+
 """RFID tags and tag groups. Kept in memory (`tags`, `groups`) and written
 through to the database, so authorizing a tag never touches the disk."""
 

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jef Steelant
+# SPDX-License-Identifier: GPL-3.0-only
+
 # pyright: standard
 import sqlite3
 from datetime import date, datetime, timedelta, timezone

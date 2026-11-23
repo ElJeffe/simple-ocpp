@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jef Steelant
+# SPDX-License-Identifier: GPL-3.0-only
+
 """RFID tags and tag groups."""
 
 from fastapi import APIRouter, HTTPException

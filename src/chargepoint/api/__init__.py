@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jef Steelant
+# SPDX-License-Identifier: GPL-3.0-only
+
 """HTTP API and web pages (FastAPI). Docs are served at /docs.
 
 All endpoints are async so they run on the same event loop as the OCPP

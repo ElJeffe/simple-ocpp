@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Jef Steelant
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Helpers shared by all pages.
 
 // The navigation bar at the top of every page.

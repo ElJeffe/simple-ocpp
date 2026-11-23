@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jef Steelant
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Settings stored as JSON key/value pairs. Not cached: they are rarely read."""
 
 import json

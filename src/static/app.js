@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Jef Steelant
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Script for the Chargers, Tags, Energy and Sessions pages. Each page has
 // only some of the elements below; parts whose element is missing are skipped.
 

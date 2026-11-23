@@ -1,3 +1,6 @@
+/* SPDX-FileCopyrightText: 2026 Jef Steelant */
+/* SPDX-License-Identifier: GPL-3.0-only */
+
 /* Shared by all pages. */
 :root {
   --bg: #f5f6f8; --card: #fff; --text: #1d2330; --muted: #6b7280;

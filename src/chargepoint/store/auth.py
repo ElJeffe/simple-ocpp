@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jef Steelant
+# SPDX-License-Identifier: GPL-3.0-only
+
 """The optional web interface password and login tokens.
 
 Without a password, the web interface is open to anyone who can reach it.

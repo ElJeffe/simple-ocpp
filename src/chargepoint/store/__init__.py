@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jef Steelant
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Persistent state: chargers, RFID tags and groups, charge sessions, energy
 and settings, in one SQLite database.
 

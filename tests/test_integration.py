@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jef Steelant
+# SPDX-License-Identifier: GPL-3.0-only
+
 # pyright: standard
 """End to end: a simulated charger talks to the real OCPP server over a
 websocket on a random local port, while the test drives the HTTP API."""

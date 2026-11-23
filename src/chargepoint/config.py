@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jef Steelant
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Fixed settings. Most settings live in the database (see store.py) and are
 edited on the settings page; the environment variables here override them."""
 
