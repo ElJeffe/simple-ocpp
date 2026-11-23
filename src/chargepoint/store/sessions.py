@@ -61,6 +61,26 @@ def start_session(
   return cursor.lastrowid
 
 
+def find_started_session(
+    charger_id: str, connector_id: int, id_tag: str, meter_start_wh: int, started_at: str,
+) -> int | None:
+  """The transaction ID of a session already recorded with exactly these values.
+
+  A charger that missed our answer to StartTransaction sends it again, and
+  must get the same transaction ID back. A session the charger really stopped
+  doesn't count: with an unset clock, a new one can look identical.
+  """
+  with db() as conn:
+    row = conn.execute(
+        "SELECT id FROM sessions WHERE charger_id = ? AND connector_id = ?"
+        " AND id_tag = ? AND meter_start_wh = ? AND started_at = ?"
+        " AND (stopped_at IS NULL OR stop_reason = ?)"
+        " ORDER BY id DESC LIMIT 1",
+        (charger_id, connector_id, id_tag, meter_start_wh, started_at, NO_STOP_RECEIVED),
+    ).fetchone()
+  return row["id"] if row else None
+
+
 def stop_session(
     charger_id: str, transaction_id: int, meter_stop_wh: int, stopped_at: str,
     reason: str | None, stop_id_tag: str | None = None,

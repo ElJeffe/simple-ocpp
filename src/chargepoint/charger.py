@@ -30,6 +30,7 @@ from .store import (
     LockConfig,
     get_state,
     close_open_sessions,
+    find_started_session,
     now_iso,
     record_energy,
     registry,
@@ -233,17 +234,23 @@ class ChargePoint(cp):
     self.record_rfid(id_tag)
 
     record_energy(self.id, connector_id, meter_start, at=timestamp)
-    if closed := close_open_sessions(self.id, timestamp, connector_id, meter_start):
-      logging.warning(
-          f"[{self.id}] New session on connector {connector_id}; closed"
-          f" sessions without a stop: {closed}"
-      )
     info = id_tag_info(id_tag)
     status = info.status
-    transaction_id = start_session(
-        self.id, connector_id, id_tag, meter_start, timestamp,
-        accepted=status == AuthorizationStatus.accepted,
+    transaction_id = find_started_session(
+        self.id, connector_id, id_tag, meter_start, timestamp
     )
+    if transaction_id is not None:
+      logging.info(f"[{self.id}] Repeated start of transaction {transaction_id}")
+    else:
+      if closed := close_open_sessions(self.id, timestamp, connector_id, meter_start):
+        logging.warning(
+            f"[{self.id}] New session on connector {connector_id}; closed"
+            f" sessions without a stop: {closed}"
+        )
+      transaction_id = start_session(
+          self.id, connector_id, id_tag, meter_start, timestamp,
+          accepted=status == AuthorizationStatus.accepted,
+      )
     if status != AuthorizationStatus.accepted:
       logging.warning(
           f"[{self.id}] Refusing transaction {transaction_id}: RFID"

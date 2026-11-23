@@ -70,8 +70,33 @@ async def test_start_with_authorized_tag(charge_point, monkeypatch):
 
 async def test_transaction_ids_are_unique(charge_point):
   store.add_tag("abc")
-  ids = {(await start(charge_point, "abc")).transaction_id for _ in range(3)}
+  ids = set()
+  for meter_start in range(3):
+    result = await charge_point.on_start_transaction(
+        connector_id=1, id_tag="abc", meter_start=meter_start,
+        timestamp="2026-01-01T00:00:00Z",
+    )
+    ids.add(result.transaction_id)
   assert len(ids) == 3
+
+
+async def test_start_after_a_real_stop_is_new_even_with_a_frozen_clock(charge_point):
+  store.add_tag("abc")
+  first = await start(charge_point, "abc")
+  await charge_point.on_stop_transaction(
+      meter_stop=0, timestamp="2026-01-01T00:00:00Z", transaction_id=first.transaction_id
+  )
+  second = await start(charge_point, "abc")
+  assert second.transaction_id != first.transaction_id
+
+
+async def test_repeated_start_after_a_reboot_keeps_its_transaction(charge_point):
+  store.add_tag("abc")
+  first = await start(charge_point, "abc")
+  store.close_open_sessions("CP_1", "2026-01-01T00:01:00Z")  # as a boot does
+  again = await start(charge_point, "abc")
+  assert again.transaction_id == first.transaction_id
+  assert len(store.list_sessions("CP_1")) == 1
 
 
 async def test_transactions_are_stored_as_sessions(charge_point, monkeypatch):
@@ -374,3 +399,37 @@ async def test_queued_stop_does_not_lower_todays_reading(charge_point):
         (now.astimezone().date().isoformat(),),
     ).fetchall()
   assert [r["energy_wh"] for r in rows] == [9000]
+
+
+async def test_repeated_start_transaction_keeps_one_session(charge_point):
+  store.add_tag("abc", authorized=True)
+  first = await start(charge_point, "abc")
+  again = await start(charge_point, "abc")
+  assert again.transaction_id == first.transaction_id
+  sessions = store.list_sessions("CP_1")
+  assert [s["id"] for s in sessions] == [first.transaction_id]
+  assert sessions[0]["stopped_at"] is None
+
+
+async def test_a_different_start_is_a_new_session(charge_point):
+  store.add_tag("abc", authorized=True)
+  first = await start(charge_point, "abc")
+  later = await charge_point.on_start_transaction(
+      connector_id=1, id_tag="abc", meter_start=0, timestamp="2026-01-01T00:05:00Z"
+  )
+  assert later.transaction_id != first.transaction_id
+  assert len(store.list_sessions("CP_1")) == 2
+
+
+async def test_repeated_refused_start_is_stopped_again(charge_point, monkeypatch):
+  stopped = []
+
+  async def fake_remote_stop(transaction_id):
+    stopped.append(transaction_id)
+
+  monkeypatch.setattr(charge_point, "remote_stop", fake_remote_stop)
+  first = await start(charge_point, "unknown")
+  await start(charge_point, "unknown")
+  await asyncio.sleep(0)
+  assert stopped == [first.transaction_id] * 2
+  assert len(store.list_sessions("CP_1")) == 1
