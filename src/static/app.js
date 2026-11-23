@@ -186,7 +186,7 @@ function sessionEnergy(s, chargers) {
   // Running: compare the connector's latest meter reading with the start.
   const c = chargers.find(c => c.id === s.charger_id);
   const now = c?.connected ? c.connectors[s.connector_id]?.energy_wh : null;
-  return now != null && s.accepted ? `<span class="sub">${kwh(now - s.meter_start_wh)} so far</span>` : "—";
+  return now != null && s.accepted ? `<span class="sub">${kwh(Math.max(0, now - s.meter_start_wh))} so far</span>` : "—";
 }
 
 function renderSessions(sessions, chargers) {

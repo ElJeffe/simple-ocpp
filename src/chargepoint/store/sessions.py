@@ -146,7 +146,12 @@ def chargers_with_several_connectors() -> set[str]:
 
 
 def session_record(row: sqlite3.Row, price_list: Prices, several: set[str]) -> SessionRecord:
-  energy_wh = None if row["meter_stop_wh"] is None else row["meter_stop_wh"] - row["meter_start_wh"]
+  # A register that went down (meter replaced or reset) counts as zero, as it
+  # does for daily energy. The readings themselves are kept as reported.
+  energy_wh = (
+      None if row["meter_stop_wh"] is None
+      else max(0, row["meter_stop_wh"] - row["meter_start_wh"])
+  )
   return {
     "id": row["id"],
     "charger_id": row["charger_id"],

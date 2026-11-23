@@ -711,3 +711,13 @@ def test_late_reading_counts_on_the_day_it_happened():
 def test_reading_with_an_impossible_timestamp_counts_as_now(timestamp):
   store.record_energy("A", 1, 1000, at=timestamp)
   assert energy_row() == [(datetime.now().astimezone().date().isoformat(), 1000)]
+
+
+def test_falling_meter_gives_a_session_no_energy_or_cost():
+  store.set_tariffs([{"valid_from": "2026-01-01", "price": 0.30}], "€")
+  transaction = store.start_session("CP_1", 1, "T", 5000, "2026-02-01T10:00:00+00:00", True)
+  store.stop_session("CP_1", transaction, 1000, "2026-02-01T11:00:00+00:00", "Local")
+  session = store.list_sessions("CP_1")[0]
+  assert (session["energy_wh"], session["cost"]) == (0, 0)
+  assert (session["meter_start_wh"], session["meter_stop_wh"]) == (5000, 1000)
+  assert store.session_summary("CP_1")["energy_wh"] == 0
