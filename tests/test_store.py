@@ -721,3 +721,11 @@ def test_falling_meter_gives_a_session_no_energy_or_cost():
   assert (session["energy_wh"], session["cost"]) == (0, 0)
   assert (session["meter_start_wh"], session["meter_stop_wh"]) == (5000, 1000)
   assert store.session_summary("CP_1")["energy_wh"] == 0
+
+
+def test_an_infinite_reading_already_stored_is_skipped():
+  store.record_energy("CP_1", 1, 1000.0, today=date(2026, 1, 1))
+  store.record_energy("CP_1", 1, float("inf"), today=date(2026, 1, 2))
+  store.record_energy("CP_1", 1, 1500.0, today=date(2026, 1, 3))
+  usage = {u["period"]: u["energy_wh"] for u in store.energy_usage("day")}
+  assert usage == {"2026-01-01": 0, "2026-01-03": 500}

@@ -51,7 +51,7 @@ class NetworkUpdate(Model):
 
 class InitialEnergyUpdate(Model):
   day: date
-  energy_wh: float = Field(ge=0)
+  energy_wh: float = Field(ge=0, allow_inf_nan=False)
 
   @field_validator("day")
   @classmethod

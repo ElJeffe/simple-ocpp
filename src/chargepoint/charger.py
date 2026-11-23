@@ -5,6 +5,7 @@
 
 import asyncio
 import logging
+import math
 from typing import Any, cast
 from urllib.parse import unquote
 
@@ -194,6 +195,9 @@ class ChargePoint(cp):
         try:
           value = float(str(sv.get("value", "")).strip())
         except ValueError:
+          continue
+        if not math.isfinite(value):  # float() also accepts "inf" and "nan"
+          logging.warning(f"[{self.id}] Ignored meter value {sv.get('value')!r}")
           continue
         unit = sv.get("unit", "")
         if measurand == "Power.Active.Import":

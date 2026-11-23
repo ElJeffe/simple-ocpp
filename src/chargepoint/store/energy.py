@@ -4,6 +4,7 @@
 """Energy: the daily meter log, usage per period and initial readings."""
 
 import logging
+import math
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from typing import Literal, TypedDict
@@ -103,6 +104,8 @@ def energy_usage(
   with_connectors = {r["charger_id"] for r in rows if r["connector_id"] > 0}
   for r in rows:
     if r["connector_id"] == 0 and r["charger_id"] in with_connectors:
+      continue
+    if not math.isfinite(r["energy_wh"]):  # stored by an older version
       continue
     meters.setdefault((r["charger_id"], r["connector_id"]), []).append(
         (r["day"], 1, r["energy_wh"])

@@ -433,3 +433,15 @@ async def test_repeated_refused_start_is_stopped_again(charge_point, monkeypatch
   await asyncio.sleep(0)
   assert stopped == [first.transaction_id] * 2
   assert len(store.list_sessions("CP_1")) == 1
+
+
+@pytest.mark.parametrize("value", ["Infinity", "-inf", "NaN"])
+async def test_non_finite_meter_values_are_ignored(charge_point, value):
+  now = datetime.now(timezone.utc).isoformat()
+  sample = [{"timestamp": now, "sampled_value": [{"value": "1000"}]}]
+  await charge_point.on_meter_values(1, sample)
+  sample[0]["sampled_value"] = [{"value": value}]
+  await charge_point.on_meter_values(1, sample)
+  assert store.registry["CP_1"].connectors[1].get("energy_wh") == 1000
+  with store.db() as conn:
+    assert conn.execute("SELECT energy_wh FROM energy_readings").fetchone()[0] == 1000

@@ -812,3 +812,21 @@ async def test_password_check_does_not_block_the_event_loop(client, monkeypatch)
   monkeypatch.setattr(store, "check_password", check)
   await client.post("/api/login", json={"password": "guess"})
   assert threads[0] is not threading.main_thread()
+
+
+async def test_initial_energy_must_be_a_real_number(client):
+  store.get_state("CP_1")
+  r = await client.post(
+      "/api/chargers/CP_1/initial-energy",
+      content='{"day": "2026-01-01", "energy_wh": Infinity}',
+      headers={"Content-Type": "application/json"},
+  )
+  assert r.status_code == 422
+  assert store.initial_energy() == {}
+
+
+async def test_invalid_input_is_not_echoed_back(client):
+  r = await client.post("/api/login", json={"password": "x" * 201})
+  assert r.status_code == 422
+  assert "xxx" not in r.text
+  assert r.json()["detail"][0]["loc"] == ["body", "password"]
