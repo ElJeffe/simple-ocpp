@@ -644,6 +644,33 @@ def test_port_in_use_gives_a_clear_error(tmp_path, busy_var, label):
   assert "Traceback" not in result.stderr
 
 
+def test_charger_name_column_is_added_to_an_older_database():
+  with store.db() as conn:
+    conn.execute("DROP TABLE chargers")
+    conn.execute("CREATE TABLE chargers (id TEXT PRIMARY KEY, desired_locked INTEGER NOT NULL"
+                 " DEFAULT 1, lock_on_plugin INTEGER NOT NULL DEFAULT 1, vendor TEXT NOT NULL"
+                 " DEFAULT '', model TEXT NOT NULL DEFAULT '', last_seen TEXT NOT NULL DEFAULT '',"
+                 " last_rfid TEXT NOT NULL DEFAULT '', last_rfid_at TEXT NOT NULL DEFAULT '')")
+    conn.execute("INSERT INTO chargers (id) VALUES ('OLD')")
+  store.init_db()
+  store.load_registry()
+  assert store.registry["OLD"].name == ""
+
+
+def test_several_connectors_from_history_and_live_status():
+  def several(charger_id):
+    return store.list_sessions(charger_id)[0]["several_connectors"]
+
+  for cp in ("SINGLE", "DUAL", "SECOND_ONLY", "METER", "LIVE"):
+    store.start_session(cp, 2 if cp == "SECOND_ONLY" else 1, "a", 0, "2026-01-01T00:00:00Z", True)
+  store.record_energy("SINGLE", 0, 100)  # connector 0 is the charger as a whole
+  store.start_session("DUAL", 2, "a", 0, "2026-01-02T00:00:00Z", True)
+  store.record_energy("METER", 2, 100)
+  store.get_state("LIVE").connectors = {0: {}, 1: {}, 2: {}}
+  assert not several("SINGLE")
+  assert all(several(cp) for cp in ("DUAL", "SECOND_ONLY", "METER", "LIVE"))
+
+
 # --- Regressions ---
 
 

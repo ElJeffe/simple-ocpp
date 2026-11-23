@@ -122,6 +122,51 @@ async def test_update_charger_setting(client):
   assert (await client.post("/api/chargers/CP_1", json={"x": 1})).status_code == 422
 
 
+async def test_charger_name(client):
+  store.get_state("CP_1")
+  store.get_state("CP_2")
+  r = await client.post("/api/chargers/CP_2", json={"name": "  Aardvark  "})
+  assert r.status_code == 200 and r.json()["name"] == "Aardvark"
+  assert r.json()["id"] == "CP_2"
+  listed = (await client.get("/api/chargers")).json()
+  assert [c["id"] for c in listed] == ["CP_2", "CP_1"]  # sorted as shown
+  store.registry.clear()
+  store.load_registry()
+  assert store.registry["CP_2"].name == "Aardvark"
+
+  r = await client.post("/api/chargers/CP_2", json={"lock_on_plugin": False})
+  assert r.json()["name"] == "Aardvark"  # other updates leave it alone
+  r = await client.post("/api/chargers/CP_2", json={"name": "aardvark"})
+  assert r.status_code == 200  # its own name, in other capitals
+  r = await client.post("/api/chargers/CP_2", json={"name": "Aardvark"})
+  assert r.status_code == 200
+  r = await client.post("/api/chargers/CP_2", json={"name": ""})
+  assert r.json()["name"] == ""
+
+
+@pytest.mark.parametrize("name, status", [
+    ("garage", 409), ("cp_3", 409), ("a\nb", 400), ("x" * 41, 422),
+])
+async def test_charger_name_is_refused(client, name, status):
+  store.get_state("CP_1")
+  store.get_state("CP_2").name = "Garage"
+  store.get_state("CP_3")
+  r = await client.post("/api/chargers/CP_1", json={"name": name})
+  assert r.status_code == status
+  assert store.registry["CP_1"].name == ""
+
+
+async def test_sessions_csv_has_charger_name(client):
+  import csv, io
+  store.get_state("CP_1").name = "Garage"
+  store.start_session("CP_1", 1, "abc", 0, "2026-11-01T10:00:00Z", accepted=True)
+  store.start_session("OLD", 1, "abc", 0, "2026-11-01T11:00:00Z", accepted=True)
+  r = await client.get("/api/sessions.csv", params={"decimal": "."})
+  rows = list(csv.reader(io.StringIO(r.text.lstrip("\ufeff"))))
+  assert (rows[0][1], rows[0][-1]) == ("Charger", "Charger name")
+  assert [(row[1], row[-1]) for row in rows[1:]] == [("CP_1", "Garage"), ("OLD", "")]
+
+
 async def test_tag_groups(client, cache_clears):
   assert (await client.post("/api/tags", json={"id_tag": "a", "parent_id_tag": "Family"})).status_code == 400
   await client.post("/api/groups", json={"name": "Family"})
@@ -362,7 +407,7 @@ async def test_session_summary_and_csv(client):
   assert r.text.startswith("﻿")
   import csv, io
   rows = list(csv.reader(io.StringIO(r.text.lstrip("﻿"))))
-  assert rows[0][-4:] == ["Energy (kWh)", "Cost (€)", "Status", "Stopped by tag"]
+  assert rows[0][-5:] == ["Energy (kWh)", "Cost (€)", "Status", "Stopped by tag", "Charger name"]
   first, second = rows[1], rows[2]  # oldest first
   assert first[:5] == [str(tid), "CP_1", "1", "card1", "Car"]
   assert (first[7], first[8], first[9], first[10]) == ("150", "8.000", "2.00", "EVDisconnected")

@@ -44,6 +44,9 @@ window.fetch = async (input, init) => {
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+// What to call a charger on the page: its friendly name, else its ID.
+const chargerName = c => c.name || c.id;
+
 // Localisation, from the Settings page. "browser" follows the browser's language.
 let localisation = { time_format: "browser", decimal_separator: "browser", currency: "€" };
 

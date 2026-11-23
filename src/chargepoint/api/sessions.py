@@ -64,6 +64,10 @@ async def sessions_csv(
   currency = store.currency()
   separator = csv_decimal(decimal)
 
+  def charger_name(charger_id: str) -> str:
+    charger = store.registry.get(charger_id)
+    return charger.name if charger else ""
+
   def status(s: store.SessionRecord) -> str:
     if not s["accepted"]:
       return "Refused"
@@ -87,8 +91,10 @@ async def sessions_csv(
       local_time(s["started_at"]), local_time(s["stopped_at"]), minutes(s),
       number(None if s["energy_wh"] is None else s["energy_wh"] / 1000, 3, separator),
       number(s["cost"], 2, separator), status(s), s["stop_id_tag"] or "",
+      charger_name(s["charger_id"]),
   ] for s in sessions)
   return csv_response("charge-sessions.csv", [
       "Transaction", "Charger", "Connector", "Tag", "Tag name", "Started", "Stopped",
       "Minutes", "Energy (kWh)", f"Cost ({currency})", "Status", "Stopped by tag",
+      "Charger name",
   ], rows, separator)

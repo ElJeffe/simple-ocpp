@@ -35,6 +35,7 @@ def ensure_data_dir() -> None:
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS chargers (
   id             TEXT PRIMARY KEY,
+  name           TEXT NOT NULL DEFAULT '',  -- shown instead of the id, if set
   desired_locked INTEGER NOT NULL DEFAULT 1,
   lock_on_plugin INTEGER NOT NULL DEFAULT 1,
   vendor         TEXT NOT NULL DEFAULT '',
@@ -102,6 +103,7 @@ ADDED_COLUMNS = [  # (table, column, definition), oldest first
     ("chargers", "lock_on_plugin", "INTEGER NOT NULL DEFAULT 1"),
     ("tags", "parent_id_tag", "TEXT NOT NULL DEFAULT ''"),
     ("sessions", "stop_id_tag", "TEXT"),
+    ("chargers", "name", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 

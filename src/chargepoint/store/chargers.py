@@ -28,6 +28,7 @@ class ChargerJSON(TypedDict):
   """A charger as the web interface sees it."""
 
   id: str
+  name: str
   desired_locked: bool
   lock_on_plugin: bool
   lock_config: LockConfig
@@ -47,6 +48,7 @@ class ChargerState:
   """Everything we know about a charger, kept across reconnects."""
 
   id: str
+  name: str = ""  # friendly name for the web interface; "" shows the id
   desired_locked: bool = True  # what the operator wants (persisted)
   lock_on_plugin: bool = True  # lock the cable whenever one is plugged in
   lock_config: LockConfig = "unknown"  # as reported by the charger
@@ -65,6 +67,7 @@ class ChargerState:
   def to_json(self) -> ChargerJSON:
     return {
         "id": self.id,
+        "name": self.name,
         "desired_locked": self.desired_locked,
         "lock_on_plugin": self.lock_on_plugin,
         "lock_config": self.lock_config,
@@ -89,6 +92,7 @@ def load_registry() -> None:
   for row in rows:
     registry[row["id"]] = ChargerState(
         id=row["id"],
+        name=row["name"],
         desired_locked=bool(row["desired_locked"]),
         lock_on_plugin=bool(row["lock_on_plugin"]),
         vendor=row["vendor"],
@@ -101,16 +105,16 @@ def load_registry() -> None:
 
 def save_registry() -> None:
   rows = [
-      (s.id, s.desired_locked, s.lock_on_plugin, s.vendor, s.model, s.last_seen,
+      (s.id, s.name, s.desired_locked, s.lock_on_plugin, s.vendor, s.model, s.last_seen,
        s.last_rfid, s.last_rfid_at)
       for s in registry.values()
   ]
   try:
     with db() as conn:
       conn.executemany(
-          "INSERT OR REPLACE INTO chargers (id, desired_locked, lock_on_plugin,"
+          "INSERT OR REPLACE INTO chargers (id, name, desired_locked, lock_on_plugin,"
           " vendor, model, last_seen, last_rfid, last_rfid_at)"
-          " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
           rows,
       )
   except sqlite3.Error as e:

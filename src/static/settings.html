@@ -313,10 +313,10 @@ async function renderInitial() {
     <tr><th>Charger</th><th>Date read</th><th>Total energy (kWh)</th><th></th></tr>
     ${chargers.map(c => {
       const v = initial[c.id];
-      return `<tr data-charger="${esc(c.id)}">
-        <td class="tagname">${esc(c.id)}</td>
-        <td><input type="date" name="day" max="${todayIso}" value="${esc(v?.day ?? "")}" aria-label="Date read for ${esc(c.id)}"></td>
-        <td><input type="number" name="kwh" min="0" step="0.001" value="${v ? v.energy_wh / 1000 : ""}" aria-label="Total energy for ${esc(c.id)} in kWh"></td>
+      return `<tr data-charger="${esc(c.id)}" data-label="${esc(chargerName(c))}">
+        <td class="tagname">${esc(chargerName(c))}</td>
+        <td><input type="date" name="day" max="${todayIso}" value="${esc(v?.day ?? "")}" aria-label="Date read for ${esc(chargerName(c))}"></td>
+        <td><input type="number" name="kwh" min="0" step="0.001" value="${v ? v.energy_wh / 1000 : ""}" aria-label="Total energy for ${esc(chargerName(c))} in kWh"></td>
         <td class="actions">
           <span class="msg"></span>
           <button class="small" data-initial="save">Save</button>
@@ -338,7 +338,7 @@ document.getElementById("initial").addEventListener("click", async e => {
       if (!day || kwhValue === "") { msg.textContent = "Enter a date and a total."; return; }
       await api("POST", path, { day, energy_wh: Number(kwhValue) * 1000 });
     } else {
-      if (!confirm(`Clear the initial energy of ${id}?`)) return;
+      if (!confirm(`Clear the initial energy of ${row.dataset.label}?`)) return;
       await api("DELETE", path);
     }
     await renderInitial();

@@ -16,6 +16,10 @@ let groups = [];             // tag groups from the server
 const SESSION_LIMIT = 20;    // sessions per page
 const NO_STOP_RECEIVED = "NoStopReceived";  // closed by the server; see store.py
 const findTag = id => tags.find(t => t.id_tag.toUpperCase() === String(id).toUpperCase());
+// A tag outside the Tags page: its name (code on hover), or the code if unnamed.
+const tagLabel = (name, id) => name
+  ? `<span class="tagname" title="${esc(id)}">${esc(name)}</span>`
+  : `<code class="rfid">${esc(id || "—")}</code>`;
 const pending = new Set();   // charger ids with a request in flight
 const messages = {};         // last request result per charger
 
@@ -44,7 +48,7 @@ function liveSessions(c) {
     const stat = (label, value) => `<div><span>${label}</span><b>${value}</b></div>`;
     return `<div class="live">
       <div class="live-head">${pill}
-        ${who ? `<span class="tagname">${esc(who)}</span>` : ""}<code class="rfid">${esc(s.id_tag || "—")}</code>
+        ${tagLabel(who, s.id_tag)}
         ${several ? `<span class="sub">connector ${esc(s.connector_id)}</span>` : ""}
       </div>
       <div class="live-stats">
@@ -97,10 +101,9 @@ function tagPill(t) {
 function rfidInfo(c) {
   if (!c.last_rfid) return `<span class="sub">none read yet</span>`;
   const t = findTag(c.last_rfid);
-  const name = t && t.name ? `<span class="tagname">${esc(t.name)}</span> ` : "";
   const register = t ? "" :
     ` <button class="small" data-tag-action="register" data-tag="${esc(c.last_rfid)}">Register</button>`;
-  return `${name}<code class="rfid">${esc(c.last_rfid)}</code> ${tagPill(t)}${register}
+  return `${tagLabel(t?.name, c.last_rfid)} ${tagPill(t)}${register}
     <div class="sub">${ago(c.last_rfid_at)}</div>`;
 }
 
@@ -194,10 +197,11 @@ function renderSessions(sessions, chargers) {
     <tr><th>Started</th><th>Charger</th><th>Tag</th><th class="num">Duration</th><th class="num">Energy</th>${hasTariff ? `<th class="num">Cost</th>` : ""}<th>Status</th></tr>
     ${sessions.map(s => {
       const name = s.tag_name || findTag(s.id_tag)?.name;
+      const charger = chargers.find(c => c.id === s.charger_id);
       return `<tr>
         <td>${esc(formatDateTime(s.started_at))}</td>
-        <td>${esc(s.charger_id)} <span class="sub">#${esc(s.connector_id)}</span></td>
-        <td>${name ? `<span class="tagname">${esc(name)}</span> ` : ""}<code class="rfid">${esc(s.id_tag || "—")}</code></td>
+        <td><span title="${esc(s.charger_id)}">${esc(charger?.name || s.charger_id)}</span>${s.several_connectors ? ` <span class="sub">#${esc(s.connector_id)}</span>` : ""}</td>
+        <td>${tagLabel(name, s.id_tag)}</td>
         <td class="num">${s.accepted && s.stop_reason !== NO_STOP_RECEIVED ? duration(s.started_at, s.stopped_at) : "—"}</td>
         <td class="num">${sessionEnergy(s, chargers)}</td>
         ${hasTariff ? `<td class="num">${esc(money(s.cost, currency))}</td>` : ""}
@@ -286,7 +290,12 @@ function card(c) {
   <section class="card ${c.connected ? "" : "offline"}">
     <div class="top">
       <div>
-        <div class="name">${esc(c.id)}</div>
+        <div class="name-row">
+          <div class="name">${esc(chargerName(c))}</div>
+          <button class="small secondary" data-rename="${esc(c.id)}" data-name="${esc(c.name)}"
+            aria-label="Rename ${esc(chargerName(c))}">Rename</button>
+        </div>
+        ${c.name ? `<div class="sub">ID: <code>${esc(c.id)}</code></div>` : ""}
         <div class="sub">${esc([c.vendor, c.model].filter(Boolean).join(" · ") || "Unknown model")}</div>
       </div>
       <span class="pill ${c.connected ? "ok" : "idle"}">${c.connected ? "Online" : "Offline"}</span>
@@ -312,7 +321,7 @@ function card(c) {
     </label>
     <div class="msg">${esc(msg)}</div>
     ${c.connected ? "" : `<div class="remove-row">
-      <button class="small danger" data-remove="${esc(c.id)}">Remove charger</button></div>`}
+      <button class="small danger" data-remove="${esc(c.id)}" data-label="${esc(chargerName(c))}">Remove charger</button></div>`}
   </section>`;
 }
 
@@ -383,13 +392,27 @@ $("list")?.addEventListener("click", async e => {
   }
 });
 
+$("list")?.addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-rename]");
+  if (!btn) return;
+  const id = btn.dataset.rename;
+  const name = prompt(`Name for charger ${id} (leave empty to show its ID):`, btn.dataset.name);
+  if (name === null) return;
+  try {
+    await api("POST", `/api/chargers/${encodeURIComponent(id)}`, { name });
+  } catch (err) {
+    alert("Not renamed: " + err.message);
+  }
+  refresh();
+});
+
 // Removing an offline charger: the dialog asks whether to keep its history.
 $("list")?.addEventListener("click", e => {
   const btn = e.target.closest("button[data-remove]");
   if (!btn) return;
   const dialog = $("remove-dialog");
   dialog.dataset.charger = btn.dataset.remove;
-  $("remove-name").textContent = btn.dataset.remove;
+  $("remove-name").textContent = btn.dataset.label;
   dialog.showModal();
 });
 
@@ -530,7 +553,7 @@ function energyDays() {
 function updateEnergyChargers(chargers) {
   const sel = document.getElementById("energy-charger");
   setHtml(sel, `<option value="">All chargers</option>` +
-    chargers.map(c => `<option value="${esc(c.id)}">${esc(c.id)}</option>`).join(""));
+    chargers.map(c => `<option value="${esc(c.id)}">${esc(chargerName(c))}</option>`).join(""));
   sel.value = energyView.charger;
 }
 

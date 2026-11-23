@@ -1,12 +1,13 @@
 """Chargers: list, settings, removal and the cable lock."""
 
 import asyncio
+import logging
 from typing import TypedDict
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from ocpp.exceptions import OCPPError
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .. import store
 from ..charger import connected_chargers, set_desired_lock
@@ -17,6 +18,7 @@ router = APIRouter()
 
 class ChargerUpdate(Model):
   lock_on_plugin: bool | None = None
+  name: str | None = Field(None, max_length=40)  # "" goes back to showing the id
 
 
 class LockResult(BaseModel):
@@ -72,8 +74,20 @@ async def list_chargers() -> list[ChargerOut]:
     by_charger.setdefault(session["charger_id"], []).append(session)
   return [
       {**s.to_json(), "active_sessions": active_sessions(s, by_charger.get(s.id, []))}
-      for s in sorted(store.registry.values(), key=lambda s: s.id)
+      for s in sorted(store.registry.values(), key=lambda s: (s.name or s.id).casefold())
   ]
+
+
+def check_name(name: str, charger: store.ChargerState) -> None:
+  """Names appear in logs and must tell chargers apart in the dropdowns."""
+  if not name.isprintable():
+    raise HTTPException(400, "The name contains characters that can't be shown")
+  wanted = name.casefold()
+  if name and any(
+      (other.name or other.id).casefold() == wanted
+      for other in store.registry.values() if other.id != charger.id
+  ):
+    raise HTTPException(409, "Another charger already has that name")
 
 
 @router.post("/api/chargers/{cp_id}")
@@ -83,6 +97,11 @@ async def update_charger(cp_id: str, body: ChargerUpdate) -> store.ChargerJSON:
     raise HTTPException(404, "Unknown charger")
   if body.lock_on_plugin is not None:
     s.lock_on_plugin = body.lock_on_plugin
+  if body.name is not None:
+    check_name(body.name, s)
+    if body.name != s.name:
+      logging.info(f"[{s.id}] Name set to {body.name!r}")
+    s.name = body.name
   store.save_registry()
   return s.to_json()
 

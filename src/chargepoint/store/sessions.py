@@ -6,6 +6,7 @@ import sqlite3
 from datetime import datetime
 from typing import TypedDict
 
+from .chargers import registry
 from .database import db
 from .tags import tag_key, tags
 from .tariffs import Prices, local_day, prices
@@ -15,6 +16,7 @@ class SessionRecord(TypedDict):
   id: int  # OCPP transaction ID
   charger_id: str
   connector_id: int
+  several_connectors: bool  # the charger has more than one
   id_tag: str
   tag_name: str
   accepted: bool
@@ -115,16 +117,38 @@ def list_sessions(
   params += [-1 if limit is None else limit, offset]
   with db() as conn:
     rows = conn.execute(query, params).fetchall()
-  price_list = prices()
-  return [session_record(row, price_list) for row in rows]
+  price_list, several = prices(), chargers_with_several_connectors()
+  return [session_record(row, price_list, several) for row in rows]
 
 
-def session_record(row: sqlite3.Row, price_list: Prices) -> SessionRecord:
+def chargers_with_several_connectors() -> set[str]:
+  """Chargers known to have more than one connector.
+
+  Live status is empty while a charger is offline, so its past sessions and
+  meter readings count too. A connector number above 1 implies another one.
+  """
+  with db() as conn:
+    rows = conn.execute(
+        "SELECT charger_id FROM (SELECT charger_id, connector_id FROM sessions"
+        " UNION SELECT charger_id, connector_id FROM energy_readings)"
+        " WHERE connector_id > 0 GROUP BY charger_id"
+        " HAVING COUNT(*) > 1 OR MAX(connector_id) > 1"
+    ).fetchall()
+  several = {row["charger_id"] for row in rows}
+  for charger in registry.values():
+    live = [c for c in charger.connectors if c > 0]
+    if len(live) > 1 or any(c > 1 for c in live):
+      several.add(charger.id)
+  return several
+
+
+def session_record(row: sqlite3.Row, price_list: Prices, several: set[str]) -> SessionRecord:
   energy_wh = None if row["meter_stop_wh"] is None else row["meter_stop_wh"] - row["meter_start_wh"]
   return {
     "id": row["id"],
     "charger_id": row["charger_id"],
     "connector_id": row["connector_id"],
+    "several_connectors": row["charger_id"] in several,
     "id_tag": row["id_tag"],
     "tag_name": row["tag_name"],
     "accepted": bool(row["accepted"]),
@@ -145,8 +169,8 @@ def open_sessions() -> list[SessionRecord]:
     rows = conn.execute(
         "SELECT * FROM sessions WHERE stopped_at IS NULL AND accepted = 1 ORDER BY id"
     ).fetchall()
-  price_list = prices()
-  return [session_record(row, price_list) for row in rows]
+  price_list, several = prices(), chargers_with_several_connectors()
+  return [session_record(row, price_list, several) for row in rows]
 
 
 def session_summary(

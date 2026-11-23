@@ -37,6 +37,7 @@ main {
 .card.offline { opacity: .7; }
 .top { display: flex; justify-content: space-between; align-items: start; gap: 10px; }
 .name { font-weight: 600; font-size: 17px; word-break: break-all; }
+.name-row { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
 .sub { color: var(--muted); font-size: 13px; }
 .pill {
   display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
