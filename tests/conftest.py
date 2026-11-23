@@ -16,7 +16,8 @@ def isolated_state(tmp_path, monkeypatch):
     monkeypatch.delenv(var, raising=False)
   monkeypatch.setattr(store.settings, "_active_network", None)
   from chargepoint.api import auth
-  monkeypatch.setattr(auth, "FAILED_LOGIN_DELAY", 0)
+  monkeypatch.setattr(auth, "PASSWORD_CHECK_INTERVAL", 0)
+  monkeypatch.setattr(auth, "_next_password_check", 0.0)
   store.init_db()
   store.registry.clear()
   store.tags.clear()

@@ -4,7 +4,8 @@
 """HTTP API and web pages (FastAPI). Docs are served at /docs.
 
 All endpoints are async so they run on the same event loop as the OCPP
-connections and can safely share state with them (no threads).
+connections and can safely share state with them. The only exception is
+password hashing, which touches no shared state and runs in a thread.
 """
 
 from fastapi import FastAPI

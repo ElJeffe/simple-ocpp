@@ -6,6 +6,8 @@ guards every other page and API call while one is set."""
 
 import asyncio
 import logging
+import math
+import time
 from collections.abc import Awaitable, Callable
 from urllib.parse import quote, urlsplit
 
@@ -19,7 +21,10 @@ from .models import Model
 router = APIRouter()
 
 COOKIE = "simple_ocpp_login"
-FAILED_LOGIN_DELAY = 1.0  # seconds; slows down password guessing
+PASSWORD_CHECK_INTERVAL = 1.0  # seconds between checks, for all clients together
+MAX_PASSWORD_WAIT = 5.0  # seconds; with a longer queue, attempts are refused
+
+_next_password_check = 0.0  # time.monotonic() of the next free turn
 
 # Reachable without logging in: the login page, what it needs, and the login API.
 PUBLIC_PATHS = {"/login", "/style.css", "/common.js", "/api/login", "/api/auth"}
@@ -80,6 +85,25 @@ def client_address(request: Request) -> str:
   return request.client.host if request.client else "unknown address"
 
 
+async def password_is_correct(password: str) -> bool:
+  """Checks a password, at most one per interval however many arrive at once.
+
+  A delay per request wouldn't limit guesses sent in parallel. Hashing is slow
+  on purpose, so it runs in a thread to keep chargers from waiting for it.
+  """
+  global _next_password_check
+  now = time.monotonic()
+  turn = max(now, _next_password_check)
+  if turn - now > MAX_PASSWORD_WAIT:
+    raise HTTPException(
+        429, "Too many password attempts. Try again in a few seconds.",
+        headers={"Retry-After": str(math.ceil(turn - now))},
+    )
+  _next_password_check = turn + PASSWORD_CHECK_INTERVAL
+  await asyncio.sleep(turn - now)
+  return await asyncio.to_thread(store.check_password, password)
+
+
 def set_login_cookie(response: Response) -> None:
   response.set_cookie(
       COOKIE, store.make_login_token(), max_age=store.LOGIN_DAYS * 86400,
@@ -114,9 +138,8 @@ async def auth_status(request: Request) -> AuthStatus:
 async def login(body: Login, request: Request, response: Response) -> dict[str, bool]:
   if not store.auth_enabled():
     return {"ok": True}  # nothing to log in to
-  if not store.check_password(body.password):
+  if not await password_is_correct(body.password):
     logging.warning(f"Failed login from {client_address(request)}: wrong password")
-    await asyncio.sleep(FAILED_LOGIN_DELAY)
     raise HTTPException(401, "Wrong password")
   set_login_cookie(response)
   logging.info(f"Login from {client_address(request)}")
@@ -133,12 +156,11 @@ async def logout(request: Request, response: Response) -> dict[str, bool]:
 
 async def check_current(password: str, request: Request) -> None:
   # 403, not 401: the browser is logged in, it just typed the wrong password.
-  if store.auth_enabled() and not store.check_password(password):
+  if store.auth_enabled() and not await password_is_correct(password):
     logging.warning(
         f"Password change or removal refused for {client_address(request)}:"
         " wrong current password"
     )
-    await asyncio.sleep(FAILED_LOGIN_DELAY)
     raise HTTPException(403, "The current password is wrong")
 
 

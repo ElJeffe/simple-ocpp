@@ -4,6 +4,10 @@
 # pyright: standard
 """HTTP API, called in-process (no network)."""
 
+import asyncio
+import threading
+import time
+
 import httpx
 import pytest
 
@@ -768,3 +772,43 @@ async def test_sessions_csv_neutralizes_a_formula_in_a_tag(client):
   store.start_session("CP_1", 1, "=HYPERLINK(1)", 0, "2026-01-01T00:00:00+00:00", True)
   text = (await client.get("/api/sessions.csv")).text
   assert "'=HYPERLINK(1)" in text
+
+
+async def test_parallel_password_guesses_are_checked_one_per_interval(client, monkeypatch):
+  store.set_password("secret123")
+  monkeypatch.setattr(api.auth, "PASSWORD_CHECK_INTERVAL", 0.05)
+  checked = []
+
+  def check(password):
+    checked.append(time.monotonic())
+    return False
+
+  monkeypatch.setattr(store, "check_password", check)
+  replies = await asyncio.gather(*(
+      client.post("/api/login", json={"password": f"guess-{i}"}) for i in range(4)
+  ))
+  assert [r.status_code for r in replies] == [401] * 4
+  gaps = [b - a for a, b in zip(sorted(checked), sorted(checked)[1:])]
+  assert len(gaps) == 3 and all(gap >= 0.04 for gap in gaps)
+
+
+async def test_too_many_waiting_password_guesses_are_refused(client, monkeypatch):
+  store.set_password("secret123")
+  monkeypatch.setattr(api.auth, "PASSWORD_CHECK_INTERVAL", 10)
+  assert (await client.post("/api/login", json={"password": "guess-1"})).status_code == 401
+  r = await client.post("/api/login", json={"password": "secret123"})
+  assert r.status_code == 429
+  assert int(r.headers["retry-after"]) >= 1
+
+
+async def test_password_check_does_not_block_the_event_loop(client, monkeypatch):
+  store.set_password("secret123")
+  threads = []
+
+  def check(password):
+    threads.append(threading.current_thread())
+    return False
+
+  monkeypatch.setattr(store, "check_password", check)
+  await client.post("/api/login", json={"password": "guess"})
+  assert threads[0] is not threading.main_thread()
