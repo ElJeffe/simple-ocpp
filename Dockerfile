@@ -6,7 +6,7 @@
 #
 # Or use compose.yaml. See "Running in Docker" in README.md.
 
-FROM python:3.14-alpine AS build
+FROM python:3.15-alpine AS build
 
 # tzdata: energy is logged per local day, so the container needs to know the
 # time zone (set TZ when running it).
