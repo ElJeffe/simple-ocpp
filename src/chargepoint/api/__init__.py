@@ -13,6 +13,7 @@ from . import auth, chargers, energy, logs, pages, prices, sessions, settings, t
 
 app = FastAPI(title="simple-ocpp")
 app.middleware("http")(auth.require_login)
+app.middleware("http")(auth.reject_cross_site)  # added last, so it runs first
 for module in (pages, auth, chargers, tags, settings, prices, energy, sessions, logs):
   app.include_router(module.router)
 

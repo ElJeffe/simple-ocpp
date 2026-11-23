@@ -713,3 +713,36 @@ async def test_csv_follows_decimal_separator(client):
   r = await client.get("/api/sessions.csv", params={"decimal": ","})
   assert r.text.lstrip("\ufeff").startswith("Transaction;Charger")
   assert (await client.get("/api/energy.csv", params={"decimal": ";"})).status_code == 422
+
+
+@pytest.mark.parametrize("headers", [
+    {"Origin": "https://evil.example"},
+    {"Origin": "null"},
+    {"Origin": "http://test:8090"},  # another port is another site
+    {"Sec-Fetch-Site": "cross-site"},
+    {"Sec-Fetch-Site": "same-site", "Origin": "http://test"},
+])
+async def test_other_sites_cannot_change_anything(client, headers):
+  store.get_state("CP_1").desired_locked = True
+  r = await client.post("/api/chargers/CP_1/unlock", headers=headers)
+  assert r.status_code == 403
+  assert store.registry["CP_1"].desired_locked is True
+
+
+@pytest.mark.parametrize("headers", [
+    {},  # scripts send neither header
+    {"Origin": "http://test"},
+    {"Origin": "http://TEST"},
+    {"Sec-Fetch-Site": "same-origin", "Origin": "http://test"},
+    {"Origin": "https://ocpp.example", "X-Forwarded-Host": "ocpp.example"},  # reverse proxy
+])
+async def test_own_pages_and_scripts_can_change_things(client, headers):
+  store.get_state("CP_1").desired_locked = True
+  r = await client.post("/api/chargers/CP_1/unlock", headers=headers)
+  assert r.status_code == 200
+  assert store.registry["CP_1"].desired_locked is False
+
+
+async def test_other_sites_can_still_link_to_pages(client):
+  r = await client.get("/api/chargers", headers={"Sec-Fetch-Site": "cross-site"})
+  assert r.status_code == 200

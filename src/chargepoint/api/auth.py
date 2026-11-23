@@ -7,7 +7,7 @@ guards every other page and API call while one is set."""
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -23,6 +23,39 @@ FAILED_LOGIN_DELAY = 1.0  # seconds; slows down password guessing
 
 # Reachable without logging in: the login page, what it needs, and the login API.
 PUBLIC_PATHS = {"/login", "/style.css", "/common.js", "/api/login", "/api/auth"}
+
+
+def is_cross_site(request: Request) -> bool:
+  """Whether a browser sent this request from a page of another site.
+
+  Browsers only send Sec-Fetch-Site over HTTPS or to localhost, so plain HTTP
+  relies on Origin. A page can't set or forge either header, nor add
+  X-Forwarded-Host without a CORS approval this server never gives. Scripts
+  send neither Sec-Fetch-Site nor Origin, and keep working.
+  """
+  fetch_site = request.headers.get("sec-fetch-site")
+  if fetch_site is not None:
+    return fetch_site not in ("same-origin", "none")
+  origin = request.headers.get("origin")
+  if origin is None:
+    return False
+  forwarded = request.headers.get("x-forwarded-host", "").split(",")
+  hosts = {h.strip().lower() for h in [request.headers.get("host", ""), *forwarded]}
+  return urlsplit(origin).netloc.lower() not in hosts - {""}
+
+
+async def reject_cross_site(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+  """Middleware: another site's page must not be able to change anything here,
+  for instance unlock a cable through the browser of someone on this network."""
+  if request.method not in ("GET", "HEAD", "OPTIONS") and is_cross_site(request):
+    logging.warning(
+        f"Refused {request.method} {request.url.path} from another site"
+        f" ({client_address(request)})"
+    )
+    return JSONResponse({"detail": "Cross-site request refused"}, status_code=403)
+  return await call_next(request)
 
 
 def logged_in(request: Request) -> bool:
