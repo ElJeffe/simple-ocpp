@@ -5,6 +5,7 @@
 
 import asyncio
 import logging
+import time
 import math
 from typing import Any, cast
 from urllib.parse import unquote
@@ -41,6 +42,7 @@ from .store import (
     stop_session,
     tag_parent,
     tag_status,
+    tag_toggles_lock,
 )
 
 LOCK_KEY = "UnlockConnectorOnEVSideDisconnect"
@@ -51,6 +53,14 @@ PLUGGED_IN = {"Preparing", "Charging", "SuspendedEV", "SuspendedEVSE", "Finishin
 # Seconds to wait after a charger connects before sending the lock setting,
 # so a booting charger can send its BootNotification first.
 CONNECT_LOCK_DELAY = 5.0
+
+# Seconds to wait before acting on a toggle tag, so the charger gets its
+# Authorize answer first.
+TOGGLE_DELAY = 1.0
+# Seconds after a toggle in which another read of a card is ignored, and in
+# which automatic locking is off: many chargers report Preparing right after a
+# card read, which looks like a cable being plugged in.
+TOGGLE_COOLDOWN = 5.0
 
 connected_chargers: dict[str, "ChargePoint"] = {}  # id -> live connection
 
@@ -72,6 +82,7 @@ def clear_charger_caches() -> None:
 
 class ChargePoint(cp):
   id: str  # set by the (untyped) ocpp base class
+  last_toggle: float = -TOGGLE_COOLDOWN  # time.monotonic() of the last lock toggle
 
   async def request[R](self, payload: object, result_type: type[R]) -> R:
     """Sends a command and returns the charger's typed answer.
@@ -162,12 +173,51 @@ class ChargePoint(cp):
   async def lock_after_connect(self) -> None:
     """Re-sends the lock setting to a charger that (re)connected."""
     await asyncio.sleep(CONNECT_LOCK_DELAY)
-    if connected_chargers.get(self.id) is self and self.should_auto_lock():
+    if connected_chargers.get(self.id) is not self:
+      return
+    if self.state.lock_release_pending:
+      await self.release_lock_setting()
+    elif self.should_auto_lock():
       await self.auto_lock("charger connected")
 
   def should_auto_lock(self) -> bool:
     """Whether "Lock cable when plugged in" is on and no lock request is running."""
-    return self.state.lock_on_plugin and not self.state.lock_busy
+    return (
+        self.state.cable_lock and self.state.lock_on_plugin and not self.state.lock_busy
+        and not self.toggled_recently()
+    )
+
+  def toggled_recently(self) -> bool:
+    return time.monotonic() - self.last_toggle < TOGGLE_COOLDOWN
+
+  def no_cable_plugged_in(self) -> bool:
+    """Only "Available" is sure: Faulted or Unavailable can still hold a cable."""
+    connectors = [c for connector_id, c in self.state.connectors.items() if connector_id > 0]
+    return bool(connectors) and all(c.get("status") == "Available" for c in connectors)
+
+  def on_toggle_tag(self, id_tag: str) -> None:
+    if not self.no_cable_plugged_in():
+      logging.debug(f"[{self.id}] RFID {id_tag}: not toggling the lock, a cable may be plugged in")
+    elif self.state.lock_busy or self.toggled_recently():
+      logging.debug(f"[{self.id}] RFID {id_tag}: not toggling the lock, just changed")
+    else:
+      self.last_toggle = time.monotonic()
+      asyncio.create_task(self.toggle_lock(id_tag))
+
+  async def toggle_lock(self, id_tag: str) -> None:
+    await asyncio.sleep(TOGGLE_DELAY)
+    state = self.state
+    if connected_chargers.get(self.id) is not self or state.lock_busy or not state.cable_lock:
+      return
+    # What the charger reported, as on the Chargers page.
+    locked = state.desired_locked if state.lock_config == "unknown" else state.lock_config == "locked"
+    logging.info(f"[{self.id}] RFID {id_tag}: {'unlocking' if locked else 'locking'} the cable")
+    try:
+      await set_desired_lock(self.id, not locked)
+    except (asyncio.TimeoutError, OCPPError) as e:  # set_cable_lock logged it
+      logging.debug(f"[{self.id}] Toggling the lock failed: {e!r}")
+    except Exception:
+      logging.exception(f"[{self.id}] Toggling the lock failed")
 
   async def auto_lock(self, reason: str) -> None:
     logging.info(f"[{self.id}] Locking cable: {reason}")
@@ -223,6 +273,9 @@ class ChargePoint(cp):
     group = f" (group {info.parent_id_tag})" if info.parent_id_tag else ""
     level = logging.INFO if info.status == AuthorizationStatus.accepted else logging.WARNING
     logging.log(level, f"[{self.id}] RFID {id_tag}: {info.status.value}{group}")
+    if (info.status == AuthorizationStatus.accepted and self.state.cable_lock
+        and tag_toggles_lock(id_tag)):
+      self.on_toggle_tag(id_tag)
     return call_result.Authorize(id_tag_info=info)
 
   @on(Action.start_transaction)
@@ -407,6 +460,46 @@ class ChargePoint(cp):
     finally:
       s.lock_busy = False
 
+  async def sync_lock_state(self) -> None:
+    """After the cable lock is turned on: show what the charger really does."""
+    try:
+      await self.read_lock_config()
+    except Exception as e:
+      logging.info(f"[{self.id}] Could not read the lock setting: {e}")
+      return
+    if self.state.lock_config != "unknown":
+      self.state.desired_locked = self.state.lock_config == "locked"
+      save_registry()
+
+  async def release_lock_setting(self) -> None:
+    """After the cable lock is turned off: stop holding the cable after unplugging.
+
+    Deliberately no UnlockConnector, which would end a session in progress.
+    """
+    state = self.state
+    if not state.lock_release_pending:
+      return
+    try:
+      response = await self.request(
+          call.ChangeConfiguration(key=LOCK_KEY, value="true"),
+          call_result.ChangeConfiguration,
+      )
+    except asyncio.TimeoutError:  # tried again when the charger next connects
+      logging.warning(f"[{self.id}] Charger did not answer the cable lock release")
+      return
+    except OCPPError as e:  # e.g. a fixed cable: there is no such setting
+      logging.info(f"[{self.id}] Charger has no cable lock to release: {e.description}")
+      response = None
+    except Exception:
+      logging.exception(f"[{self.id}] Releasing the cable lock failed")
+      return
+    if response is not None:
+      logging.info(f"[{self.id}] Cable lock released: {response.status}")
+      if response.status != ConfigurationStatus.rejected:
+        state.lock_config = "unlocked"
+    state.lock_release_pending = False
+    save_registry()
+
   async def release_connectors(self) -> str:
     connector_ids = [c for c in self.state.connectors if c > 0] or [1]
     results: list[str] = []
@@ -457,6 +550,28 @@ def charger_id_from_path(path: str) -> str:
   decoded = unquote(encoded)
   charger_id = decoded if decoded.isprintable() and "/" not in decoded else encoded
   return charger_id or "UNKNOWN_CP"
+
+
+def set_cable_lock_enabled(cp_id: str, enabled: bool) -> None:
+  """Turns all cable lock features of a charger on or off.
+
+  Turning them off also makes the charger stop holding the cable, because
+  nothing on the web interface could release it afterwards.
+  """
+  s = get_state(cp_id)
+  if s.cable_lock == enabled:
+    return
+  s.cable_lock = enabled
+  s.lock_release_pending = not enabled
+  if not enabled:
+    s.desired_locked = False
+  save_registry()
+  logging.info(f"[{cp_id}] Cable lock {'enabled' if enabled else 'disabled'}")
+  charger = connected_chargers.get(cp_id)
+  if charger is not None:
+    asyncio.create_task(
+        charger.sync_lock_state() if enabled else charger.release_lock_setting()
+    )
 
 
 async def on_connect(websocket: websockets.ServerConnection) -> None:

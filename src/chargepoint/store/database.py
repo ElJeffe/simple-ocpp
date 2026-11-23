@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS chargers (
   name           TEXT NOT NULL DEFAULT '',  -- shown instead of the id, if set
   desired_locked INTEGER NOT NULL DEFAULT 1,
   lock_on_plugin INTEGER NOT NULL DEFAULT 1,
+  cable_lock     INTEGER NOT NULL DEFAULT 0,  -- 0: never touch the cable lock
+  lock_release_pending INTEGER NOT NULL DEFAULT 0,  -- still to tell the charger
   vendor         TEXT NOT NULL DEFAULT '',
   model          TEXT NOT NULL DEFAULT '',
   serial_number  TEXT NOT NULL DEFAULT '',  -- as reported at boot, if any
@@ -54,7 +56,8 @@ CREATE TABLE IF NOT EXISTS tags (
   name       TEXT NOT NULL DEFAULT '',
   authorized INTEGER NOT NULL DEFAULT 0,
   added      TEXT NOT NULL DEFAULT '',
-  parent_id_tag TEXT NOT NULL DEFAULT ''   -- groups.name, or ''
+  parent_id_tag TEXT NOT NULL DEFAULT '',  -- groups.name, or ''
+  toggle_lock INTEGER NOT NULL DEFAULT 0   -- presenting it toggles the cable lock
 );
 CREATE TABLE IF NOT EXISTS groups (
   key   TEXT PRIMARY KEY,  -- tag_key(name)
@@ -109,6 +112,10 @@ ADDED_COLUMNS = [  # (table, column, definition), oldest first
     ("sessions", "stop_id_tag", "TEXT"),
     ("chargers", "name", "TEXT NOT NULL DEFAULT ''"),
     ("chargers", "serial_number", "TEXT NOT NULL DEFAULT ''"),
+    ("tags", "toggle_lock", "INTEGER NOT NULL DEFAULT 0"),
+    # 1: chargers from before this setting keep the locking they had.
+    ("chargers", "cable_lock", "INTEGER NOT NULL DEFAULT 1"),
+    ("chargers", "lock_release_pending", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 

@@ -18,12 +18,14 @@ class TagCreate(Model):
   name: str = Field("", max_length=100)
   authorized: bool = True
   parent_id_tag: str = Field("", max_length=20)  # group; "" = none
+  toggle_lock: bool = False
 
 
 class TagUpdate(Model):
   name: str | None = Field(None, max_length=100)
   authorized: bool | None = None
   parent_id_tag: str | None = Field(None, max_length=20)
+  toggle_lock: bool | None = None
 
 
 class GroupCreate(Model):
@@ -38,7 +40,9 @@ async def list_tags() -> list[store.TagRecord]:
 @router.post("/api/tags")
 async def register_tag(body: TagCreate) -> store.TagRecord:
   try:
-    return store.add_tag(body.id_tag, body.name, body.authorized, body.parent_id_tag)
+    return store.add_tag(
+        body.id_tag, body.name, body.authorized, body.parent_id_tag, body.toggle_lock
+    )
   except KeyError:
     raise HTTPException(400, "Tag is already registered")
   except ValueError as e:
@@ -49,7 +53,7 @@ async def register_tag(body: TagCreate) -> store.TagRecord:
 async def update_tag(id_tag: str, body: TagUpdate) -> store.TagRecord:
   try:
     tag, stale = store.update_tag(
-        id_tag, body.name, body.authorized, body.parent_id_tag
+        id_tag, body.name, body.authorized, body.parent_id_tag, body.toggle_lock
     )
   except KeyError:
     raise HTTPException(404, "Unknown tag")

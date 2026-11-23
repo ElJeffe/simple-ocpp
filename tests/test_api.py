@@ -97,7 +97,7 @@ async def test_lock_unknown_charger(client):
 
 
 async def test_lock_offline_charger_saves_choice(client):
-  store.get_state("CP_1")
+  store.get_state("CP_1").cable_lock = True
   r = await client.post("/api/chargers/CP_1/unlock")
   assert r.status_code == 200
   assert r.json()["ok"] is True
@@ -173,6 +173,32 @@ async def test_sessions_csv_has_charger_name(client):
   rows = list(csv.reader(io.StringIO(r.text.lstrip("\ufeff"))))
   assert (rows[0][1], rows[0][-1]) == ("Charger", "Charger name")
   assert [(row[1], row[-1]) for row in rows[1:]] == [("CP_1", "Garage"), ("OLD", "")]
+
+
+async def test_cable_lock_per_charger(client):
+  store.get_state("CP_1")
+  assert (await client.get("/api/chargers")).json()[0]["cable_lock"] is False  # new charger
+  for action in ("lock", "unlock"):
+    assert (await client.post(f"/api/chargers/CP_1/{action}")).status_code == 409
+  r = await client.post("/api/chargers/CP_1", json={"cable_lock": True})
+  assert r.json()["cable_lock"] is True
+  assert (await client.post("/api/chargers/CP_1/lock")).status_code == 200
+
+
+async def test_tag_toggle_lock_setting(client, cache_clears):
+  r = await client.post("/api/tags", json={"id_tag": "a"})
+  assert r.json()["toggle_lock"] is False
+  r = await client.post("/api/tags/a", json={"toggle_lock": True})
+  assert r.json()["toggle_lock"] is True
+  store.tags.clear()
+  store.load_tags()
+  assert store.tags["A"]["toggle_lock"] is True
+  r = await client.post("/api/tags/a", json={"name": "Car"})
+  assert r.json()["toggle_lock"] is True  # other updates leave it alone
+  assert cache_clears == []
+  assert store.tag_toggles_lock("a")
+  await client.post("/api/tags/a", json={"authorized": False})
+  assert not store.tag_toggles_lock("a")
 
 
 async def test_tag_groups(client, cache_clears):
@@ -742,7 +768,8 @@ async def test_other_sites_cannot_change_anything(client, headers):
     {"Origin": "https://ocpp.example", "X-Forwarded-Host": "ocpp.example"},  # reverse proxy
 ])
 async def test_own_pages_and_scripts_can_change_things(client, headers):
-  store.get_state("CP_1").desired_locked = True
+  state = store.get_state("CP_1")
+  state.cable_lock, state.desired_locked = True, True
   r = await client.post("/api/chargers/CP_1/unlock", headers=headers)
   assert r.status_code == 200
   assert store.registry["CP_1"].desired_locked is False

@@ -34,6 +34,7 @@ class ChargerJSON(TypedDict):
   name: str
   desired_locked: bool
   lock_on_plugin: bool
+  cable_lock: bool
   lock_config: LockConfig
   lock_busy: bool
   last_message: str
@@ -55,6 +56,8 @@ class ChargerState:
   name: str = ""  # friendly name for the web interface; "" shows the id
   desired_locked: bool = True  # what the operator wants (persisted)
   lock_on_plugin: bool = True  # lock the cable whenever one is plugged in
+  cable_lock: bool = False  # off (e.g. a fixed cable): all lock features are off
+  lock_release_pending: bool = False  # cable lock turned off; charger not told yet
   lock_config: LockConfig = "unknown"  # as reported by the charger
   lock_busy: bool = False
   last_message: str = ""
@@ -75,6 +78,7 @@ class ChargerState:
         "name": self.name,
         "desired_locked": self.desired_locked,
         "lock_on_plugin": self.lock_on_plugin,
+        "cable_lock": self.cable_lock,
         "lock_config": self.lock_config,
         "lock_busy": self.lock_busy,
         "last_message": self.last_message,
@@ -101,6 +105,8 @@ def load_registry() -> None:
         name=row["name"],
         desired_locked=bool(row["desired_locked"]),
         lock_on_plugin=bool(row["lock_on_plugin"]),
+        cable_lock=bool(row["cable_lock"]),
+        lock_release_pending=bool(row["lock_release_pending"]),
         vendor=row["vendor"],
         model=row["model"],
         serial_number=row["serial_number"],
@@ -112,7 +118,8 @@ def load_registry() -> None:
 
 def save_registry() -> None:
   rows = [
-      (s.id, s.name, s.desired_locked, s.lock_on_plugin, s.vendor, s.model, s.serial_number, s.last_seen,
+      (s.id, s.name, s.desired_locked, s.lock_on_plugin, s.cable_lock,
+       s.lock_release_pending, s.vendor, s.model, s.serial_number, s.last_seen,
        s.last_rfid, s.last_rfid_at)
       for s in registry.values()
   ]
@@ -120,8 +127,9 @@ def save_registry() -> None:
     with db() as conn:
       conn.executemany(
           "INSERT OR REPLACE INTO chargers (id, name, desired_locked, lock_on_plugin,"
+          " cable_lock, lock_release_pending,"
           " vendor, model, serial_number, last_seen, last_rfid, last_rfid_at)"
-          " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
           rows,
       )
   except sqlite3.Error as e:

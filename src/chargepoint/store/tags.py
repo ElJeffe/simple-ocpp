@@ -20,6 +20,7 @@ class TagRecord(TypedDict):
   # Group name, sent to chargers as OCPP parentIdTag; "" = not in a group.
   # Any tag in the same group may stop a session another member started.
   parent_id_tag: str
+  toggle_lock: bool  # presenting it with no cable plugged in toggles the lock
 
 
 class GroupRecord(TypedDict):
@@ -49,6 +50,7 @@ def load_tags() -> None:
         "authorized": bool(row["authorized"]),
         "added": row["added"],
         "parent_id_tag": row["parent_id_tag"],
+        "toggle_lock": bool(row["toggle_lock"]),
     }
   # Groups used to exist only as a value on tags; give those a groups row.
   for tag in tags.values():
@@ -60,9 +62,9 @@ def save_tag(tag: TagRecord) -> None:
   with db() as conn:
     conn.execute(
         "INSERT OR REPLACE INTO tags (key, id_tag, name, authorized, added,"
-        " parent_id_tag) VALUES (?, ?, ?, ?, ?, ?)",
+        " parent_id_tag, toggle_lock) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (tag_key(tag["id_tag"]), tag["id_tag"], tag["name"], tag["authorized"],
-         tag["added"], tag["parent_id_tag"]),
+         tag["added"], tag["parent_id_tag"], tag["toggle_lock"]),
     )
 
 
@@ -78,6 +80,12 @@ def tag_parent(id_tag: str | None) -> str | None:
   """The group (OCPP parentIdTag) of a registered tag, or None."""
   tag = tags.get(tag_key(id_tag))
   return (tag["parent_id_tag"] or None) if tag else None
+
+
+def tag_toggles_lock(id_tag: str | None) -> bool:
+  """Whether presenting this tag should toggle the cable lock."""
+  tag = tags.get(tag_key(id_tag))
+  return tag is not None and tag["authorized"] and tag["toggle_lock"]
 
 
 def group_name(name: str) -> str:
@@ -99,7 +107,8 @@ def sorted_tags() -> list[TagRecord]:
 
 
 def add_tag(
-    id_tag: str, name: str = "", authorized: bool = True, parent_id_tag: str = ""
+    id_tag: str, name: str = "", authorized: bool = True, parent_id_tag: str = "",
+    toggle_lock: bool = False,
 ) -> TagRecord:
   """Registers a tag.
 
@@ -114,6 +123,7 @@ def add_tag(
       "authorized": authorized,
       "added": now_iso(),
       "parent_id_tag": group_name(parent_id_tag),
+      "toggle_lock": toggle_lock,
   }
   save_tag(tag)  # before caching, so a failed write leaves no phantom tag
   tags[key] = tag
@@ -123,7 +133,7 @@ def add_tag(
 
 def update_tag(
     id_tag: str, name: str | None = None, authorized: bool | None = None,
-    parent_id_tag: str | None = None,
+    parent_id_tag: str | None = None, toggle_lock: bool | None = None,
 ) -> tuple[TagRecord, bool]:
   """Changes a tag. Raises KeyError if unknown, ValueError for an unknown group.
 
@@ -139,6 +149,8 @@ def update_tag(
     tag["authorized"] = authorized
   if parent_id_tag is not None:
     tag["parent_id_tag"] = group_name(parent_id_tag)
+  if toggle_lock is not None:
+    tag["toggle_lock"] = toggle_lock
   save_tag(tag)
   tags[key] = tag
   logging.info(f"Updated RFID {tag['id_tag']}: {tag}")

@@ -643,6 +643,23 @@ def test_port_in_use_gives_a_clear_error(tmp_path, busy_var, label):
   assert "Traceback" not in result.stderr
 
 
+def test_chargers_from_before_the_cable_lock_setting_keep_locking():
+  with store.db() as conn:
+    conn.execute("DROP TABLE chargers")
+    conn.execute("CREATE TABLE chargers (id TEXT PRIMARY KEY, desired_locked INTEGER NOT NULL"
+                 " DEFAULT 1, lock_on_plugin INTEGER NOT NULL DEFAULT 1, vendor TEXT NOT NULL"
+                 " DEFAULT '', model TEXT NOT NULL DEFAULT '', last_seen TEXT NOT NULL DEFAULT '',"
+                 " last_rfid TEXT NOT NULL DEFAULT '', last_rfid_at TEXT NOT NULL DEFAULT '')")
+    conn.execute("INSERT INTO chargers (id) VALUES ('OLD')")
+  store.init_db()
+  store.load_registry()
+  assert store.registry["OLD"].cable_lock is True
+  assert store.get_state("NEW").cable_lock is False
+  store.registry.clear()
+  store.load_registry()
+  assert store.registry["OLD"].cable_lock is True and store.registry["NEW"].cable_lock is False
+
+
 def test_charger_name_column_is_added_to_an_older_database():
   with store.db() as conn:
     conn.execute("DROP TABLE chargers")

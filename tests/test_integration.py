@@ -83,6 +83,7 @@ async def server():
 
 @pytest.fixture
 async def sim(server):
+  store.get_state("CP_SIM").cable_lock = True
   async with websockets.connect(
       f"ws://127.0.0.1:{server}/CP_SIM", subprotocols=OCPP16
   ) as ws:
@@ -142,7 +143,9 @@ async def test_plugging_in_locks_cable(sim):
 async def test_connecting_locks_cable_when_enabled(server, monkeypatch):
   monkeypatch.setattr(charger, "CONNECT_LOCK_DELAY", 0)
   store.get_state("CP_ON").desired_locked = False
+  store.get_state("CP_ON").cable_lock = True
   store.get_state("CP_OFF").lock_on_plugin = False
+  store.get_state("CP_OFF").cable_lock = True
   sims = {}
   for cp_id in ("CP_ON", "CP_OFF"):
     ws = await websockets.connect(f"ws://127.0.0.1:{server}/{cp_id}", subprotocols=OCPP16)

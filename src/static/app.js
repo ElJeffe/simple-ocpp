@@ -15,6 +15,7 @@ const STATUS_CLASS = {
   Unavailable: "bad", Faulted: "bad",
 };
 let tags = [];               // registered RFID tags from the server
+let anyCableLock = false;    // some charger has its cable lock turned on
 let groups = [];             // tag groups from the server
 const SESSION_LIMIT = 20;    // sessions per page
 const NO_STOP_RECEIVED = "NoStopReceived";  // closed by the server; see store.py
@@ -124,12 +125,14 @@ function renderTags() {
     return;
   }
   setHtml(el, `<table>
-    <tr><th>Name</th><th>Tag</th><th>Group</th><th>Status</th><th></th></tr>
+    <tr><th>Name</th><th>Tag</th><th>Group</th><th>Status</th>${anyCableLock ? `<th title="When this authorized card is presented and no cable is plugged in, the cable lock is toggled">Toggle lock</th>` : ""}<th></th></tr>
     ${tags.map(t => `<tr>
       <td class="tagname">${t.name ? esc(t.name) : `<span class="sub">unnamed</span>`}</td>
       <td><code class="rfid">${esc(t.id_tag)}</code></td>
       <td>${groupSelect(t)}</td>
       <td>${tagPill(t)}</td>
+      ${anyCableLock ? `<td><input type="checkbox" data-tag-toggle="${esc(t.id_tag)}" ${t.toggle_lock ? "checked" : ""}
+        aria-label="Toggle cable lock with ${esc(t.name || t.id_tag)}"></td>` : ""}
       <td class="actions">
         <button class="small secondary" data-tag-action="rename" data-tag="${esc(t.id_tag)}">Rename</button>
         <button class="small ${t.authorized ? "secondary" : ""}" data-tag-action="${t.authorized ? "deauthorize" : "authorize"}"
@@ -309,7 +312,7 @@ function card(c) {
       <dt>Last RFID</dt><dd>${rfidInfo(c)}</dd>
     </dl>
     ${liveSessions(c)}
-    <div class="lockrow">
+    ${c.cable_lock ? `<div class="lockrow">
       <span class="lockstate" style="color: var(${locked ? "--ok" : "--warn"})">
         ${locked ? LOCK_ICON : UNLOCK_ICON}${esc(label)}
       </span>
@@ -321,7 +324,7 @@ function card(c) {
     <label class="toggle">
       <input type="checkbox" data-plugin-lock="${esc(c.id)}" ${c.lock_on_plugin ? "checked" : ""}>
       Lock cable when plugged in
-    </label>
+    </label>` : ""}
     <div class="msg">${esc(msg)}</div>
     ${c.connected ? "" : `<div class="remove-row">
       <button class="small danger" data-remove="${esc(c.id)}" data-label="${esc(chargerName(c))}">Remove charger</button></div>`}
@@ -350,6 +353,7 @@ async function refresh() {
     ]);
     if (call !== refreshCount) return;  // a newer refresh has started
     if (tagList) tags = tagList;
+    anyCableLock = chargers.some(c => c.cable_lock);
     if (groupList) groups = groupList;
     if ($("tags")) renderTags();
     if ($("groups")) renderGroups();
@@ -479,6 +483,17 @@ $("tags")?.addEventListener("change", async e => {
     alert("Failed: " + err.message);
   }
   e.target.blur();  // let the refresh redraw the table again
+  refresh();
+});
+
+$("tags")?.addEventListener("change", async e => {
+  const tag = e.target.dataset.tagToggle;
+  if (tag === undefined) return;
+  try {
+    await api("POST", `/api/tags/${encodeURIComponent(tag)}`, { toggle_lock: e.target.checked });
+  } catch (err) {
+    alert("Failed: " + err.message);
+  }
   refresh();
 });
 

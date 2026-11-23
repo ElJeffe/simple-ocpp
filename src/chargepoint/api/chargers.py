@@ -13,7 +13,7 @@ from ocpp.exceptions import OCPPError
 from pydantic import BaseModel, Field
 
 from .. import store
-from ..charger import connected_chargers, set_desired_lock
+from ..charger import connected_chargers, set_cable_lock_enabled, set_desired_lock
 from .models import Model
 
 router = APIRouter()
@@ -21,6 +21,7 @@ router = APIRouter()
 
 class ChargerUpdate(Model):
   lock_on_plugin: bool | None = None
+  cable_lock: bool | None = None  # False turns off every cable lock feature
   name: str | None = Field(None, max_length=40)  # "" goes back to showing the id
 
 
@@ -100,6 +101,8 @@ async def update_charger(cp_id: str, body: ChargerUpdate) -> store.ChargerJSON:
     raise HTTPException(404, "Unknown charger")
   if body.lock_on_plugin is not None:
     s.lock_on_plugin = body.lock_on_plugin
+  if body.cable_lock is not None:
+    set_cable_lock_enabled(cp_id, body.cable_lock)
   if body.name is not None:
     check_name(body.name, s)
     if body.name != s.name:
@@ -124,6 +127,8 @@ async def delete_charger(cp_id: str, delete_history: bool = False) -> dict[str, 
 async def _apply_lock(cp_id: str, locked: bool) -> LockResult | JSONResponse:
   if cp_id not in store.registry:
     raise HTTPException(404, "Unknown charger")
+  if not store.registry[cp_id].cable_lock:
+    raise HTTPException(409, "Cable lock is turned off for this charger")
   try:
     return LockResult(ok=True, message=await set_desired_lock(cp_id, locked))
   except (asyncio.TimeoutError, OCPPError) as e:

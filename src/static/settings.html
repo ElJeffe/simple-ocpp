@@ -92,6 +92,20 @@
   </form>
 </div></section>
 
+<div class="section-head"><h2>Cable lock</h2></div>
+<section class="panel"><div>
+  <p>Turn this on for chargers with a socket, where the charging cable can be removed. Turn it off for
+    chargers with a fixed cable.</p>
+  <p>When on, the <a href="/">Chargers</a> page has the <b>Lock / Unlock</b> button and
+    <b>Lock cable when plugged in</b>, and the <a href="/tags">Tags</a> page has a <b>Toggle lock</b>
+    checkbox per card. Presenting an authorized card with that box ticked unlocks a locked cable and locks
+    an unlocked one, but only while no cable is plugged in: every connector must report Available, and the
+    charger must send the card to this server, which some chargers skip for cards they remember.</p>
+  <p>When off, this server never locks or unlocks the cable. Turning it off tells the charger to release
+    the cable the next time the car is unplugged, without interrupting charging.</p>
+  <div id="cable-locks"></div>
+</div></section>
+
 <div class="section-head"><h2>Initial energy</h2></div>
 <section class="panel"><div>
   <p>If you know a charger's total energy reading from before it was connected here (on its display or in
@@ -237,6 +251,33 @@ document.getElementById("locale-form").addEventListener("submit", async e => {
   }
 });
 
+async function renderCableLocks() {
+  const el = document.getElementById("cable-locks");
+  const chargers = await api("GET", "/api/chargers");
+  el.innerHTML = chargers.length ? `<table>
+    <tr><th>Charger</th><th>Cable lock</th><th></th></tr>
+    ${chargers.map(c => `<tr>
+      <td class="tagname">${esc(chargerName(c))}</td>
+      <td><input type="checkbox" data-cable-lock="${esc(c.id)}" ${c.cable_lock ? "checked" : ""}
+        aria-label="Cable lock for ${esc(chargerName(c))}"></td>
+      <td class="actions"><span class="msg" role="status"></span></td>
+    </tr>`).join("")}
+  </table>` : `<div class="empty" style="padding:20px 0">No chargers have connected yet.</div>`;
+}
+
+document.getElementById("cable-locks").addEventListener("change", async e => {
+  const box = e.target, id = box.dataset.cableLock;
+  if (id === undefined) return;
+  const msg = box.closest("tr").querySelector(".msg");
+  try {
+    await api("POST", `/api/chargers/${encodeURIComponent(id)}`, { cable_lock: box.checked });
+    msg.textContent = "Saved.";
+  } catch (err) {
+    box.checked = !box.checked;
+    msg.textContent = "Not saved: " + err.message;
+  }
+});
+
 async function renderInitial() {
   const el = document.getElementById("initial");
   const [chargers, initial] = await Promise.all([api("GET", "/api/chargers"), api("GET", "/api/initial-energy")]);
@@ -333,6 +374,7 @@ document.getElementById("pw-remove").addEventListener("click", async () => {
     renderPassword(await api("GET", "/api/auth"));
     settings = await api("GET", "/api/settings");
     renderNetwork();
+    await renderCableLocks();
     await renderInitial();
   } catch (err) {
     document.body.insertAdjacentHTML("afterbegin", `<div class="note warn">Could not load settings: ${esc(err.message)}</div>`);

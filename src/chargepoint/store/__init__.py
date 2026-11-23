@@ -97,6 +97,7 @@ from .tags import (
     tag_key,
     tag_parent,
     tag_status,
+    tag_toggles_lock,
     tags,
     update_tag,
 )
@@ -118,5 +119,5 @@ __all__ = [
     "registry", "remove_group", "remove_tag", "save_registry", "saved_network_settings",
     "session_connector", "set_active_network", "set_initial_energy",
     "set_network_settings", "set_setting", "sorted_groups", "sorted_tags", "start_session",
-    "stop_session", "tag_key", "tag_parent", "tag_status", "tags", "update_tag",
+    "stop_session", "tag_key", "tag_parent", "tag_status", "tag_toggles_lock", "tags", "update_tag",
 ]

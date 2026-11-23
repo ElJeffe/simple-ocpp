@@ -8,7 +8,9 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from ocpp.v16.enums import AuthorizationStatus
+from ocpp.exceptions import NotSupportedError
+from ocpp.v16 import call_result
+from ocpp.v16.enums import AuthorizationStatus, ConfigurationStatus
 
 from chargepoint import charger, store
 
@@ -191,6 +193,7 @@ async def test_set_desired_lock_offline_is_saved_for_later():
 
 
 async def test_plug_in_locks_only_on_transition(charge_point, monkeypatch):
+  charge_point.state.cable_lock = True
   locks = []
 
   async def fake_set_cable_lock(locked):
@@ -359,6 +362,198 @@ def test_charger_id_from_path(path, expected):
 def test_known_charger_keeps_its_literal_id(known):
   store.get_state(known)
   assert charger.charger_id_from_path(f"/{known}") == known
+
+
+@pytest.fixture
+def toggle_setup(charge_point, monkeypatch):
+  """A connected charger with an empty connector, recording lock requests."""
+  calls = []
+
+  async def fake_lock(locked):
+    calls.append(locked)
+    charge_point.state.lock_config = "locked" if locked else "unlocked"
+    return "ok"
+
+  monkeypatch.setattr(charge_point, "set_cable_lock", fake_lock)
+  monkeypatch.setattr(charger, "TOGGLE_DELAY", 0)
+  charger.connected_chargers["CP_1"] = charge_point
+  charge_point.state.connectors = {0: {"status": "Available"}, 1: {"status": "Available"}}
+  charge_point.state.lock_config = "locked"
+  charge_point.state.cable_lock = True
+  store.add_tag("toggle", toggle_lock=True)
+  return charge_point, calls
+
+
+async def present(charge_point, id_tag="toggle"):
+  result = await charge_point.on_authorize(id_tag=id_tag)
+  await asyncio.sleep(0.01)
+  return result
+
+
+async def test_toggle_tag_toggles_the_lock_both_ways(toggle_setup):
+  charge_point, calls = toggle_setup
+  result = await present(charge_point)
+  assert result.id_tag_info.status == AuthorizationStatus.accepted
+  assert calls == [False]
+  charge_point.last_toggle = -charger.TOGGLE_COOLDOWN  # the cooldown has passed
+  await present(charge_point)
+  assert calls == [False, True]
+  assert store.registry["CP_1"].desired_locked is True
+
+
+async def test_cable_lock_off_stops_toggle_and_auto_lock(toggle_setup):
+  charge_point, calls = toggle_setup
+  charge_point.state.cable_lock = False
+  result = await present(charge_point)
+  assert result.id_tag_info.status == AuthorizationStatus.accepted
+  assert calls == [] and store.tags["TOGGLE"]["toggle_lock"] is True
+  assert not charge_point.should_auto_lock()
+  charge_point.state.connectors[1] = {"status": "Available"}
+  await charge_point.on_status_notification(1, "NoError", "Preparing")
+  await asyncio.sleep(0.01)
+  assert calls == []
+
+
+def fake_config_answer(charge_point, monkeypatch, answer):
+  sent = []
+
+  async def fake_request(payload, result_type):
+    sent.append(payload)
+    if isinstance(answer, Exception):
+      raise answer
+    return call_result.ChangeConfiguration(status=answer)
+
+  monkeypatch.setattr(charge_point, "request", fake_request)
+  return sent
+
+
+async def test_turning_cable_lock_off_releases_without_ending_the_session(
+    toggle_setup, monkeypatch
+):
+  charge_point, _ = toggle_setup
+  sent = fake_config_answer(charge_point, monkeypatch, ConfigurationStatus.accepted)
+  charger.set_cable_lock_enabled("CP_1", False)
+  await asyncio.sleep(0.01)
+  assert [(p.key, p.value) for p in sent] == [(charger.LOCK_KEY, "true")]  # no UnlockConnector
+  state = store.registry["CP_1"]
+  assert not state.cable_lock and not state.desired_locked and not state.lock_release_pending
+  store.registry.clear()
+  store.load_registry()
+  assert store.registry["CP_1"].cable_lock is False
+
+
+@pytest.mark.parametrize("answer, pending", [
+    (ConfigurationStatus.rejected, False),
+    (ConfigurationStatus.not_supported, False),
+    (NotSupportedError(description="no"), False),
+    (asyncio.TimeoutError(), True),
+])
+async def test_release_is_only_retried_if_the_charger_did_not_answer(
+    toggle_setup, monkeypatch, answer, pending
+):
+  charge_point, _ = toggle_setup
+  fake_config_answer(charge_point, monkeypatch, answer)
+  charger.set_cable_lock_enabled("CP_1", False)
+  await asyncio.sleep(0.01)
+  assert store.registry["CP_1"].lock_release_pending is pending
+
+
+async def test_release_is_sent_when_an_offline_charger_connects(toggle_setup, monkeypatch):
+  charge_point, _ = toggle_setup
+  sent = fake_config_answer(charge_point, monkeypatch, ConfigurationStatus.accepted)
+  del charger.connected_chargers["CP_1"]
+  charger.set_cable_lock_enabled("CP_1", False)
+  await asyncio.sleep(0.01)
+  assert sent == [] and store.registry["CP_1"].lock_release_pending
+  charger.connected_chargers["CP_1"] = charge_point
+  monkeypatch.setattr(charger, "CONNECT_LOCK_DELAY", 0)
+  await charge_point.lock_after_connect()
+  assert len(sent) == 1 and not store.registry["CP_1"].lock_release_pending
+
+
+async def test_new_charger_is_left_alone_until_cable_lock_is_on(charge_point, monkeypatch):
+  sent = fake_config_answer(charge_point, monkeypatch, ConfigurationStatus.accepted)
+  monkeypatch.setattr(charger, "CONNECT_LOCK_DELAY", 0)
+  charger.connected_chargers["CP_1"] = charge_point
+  assert charge_point.state.cable_lock is False
+  await charge_point.lock_after_connect()
+  await charge_point.on_status_notification(1, "NoError", "Preparing")
+  await asyncio.sleep(0.01)
+  assert sent == []
+  store.save_registry()
+  store.registry.clear()
+  store.load_registry()
+  assert store.registry["CP_1"].cable_lock is False
+
+
+@pytest.mark.parametrize("value, locked", [("false", True), ("true", False)])
+async def test_turning_cable_lock_on_shows_the_real_state(
+    charge_point, monkeypatch, value, locked
+):
+  async def fake_request(payload, result_type):
+    return call_result.GetConfiguration(
+        configuration_key=[{"key": charger.LOCK_KEY, "value": value, "readonly": False}]
+    )
+
+  monkeypatch.setattr(charge_point, "request", fake_request)
+  charger.connected_chargers["CP_1"] = charge_point
+  charger.set_cable_lock_enabled("CP_1", True)
+  await asyncio.sleep(0.01)
+  assert store.registry["CP_1"].desired_locked is locked
+
+
+async def test_turning_cable_lock_back_on_cancels_a_pending_release(toggle_setup):
+  charge_point, _ = toggle_setup
+  del charger.connected_chargers["CP_1"]
+  charger.set_cable_lock_enabled("CP_1", False)
+  charger.set_cable_lock_enabled("CP_1", True)
+  state = store.registry["CP_1"]
+  assert state.cable_lock and not state.lock_release_pending
+
+
+async def test_second_read_of_a_card_is_ignored(toggle_setup):
+  charge_point, calls = toggle_setup
+  await present(charge_point)
+  await present(charge_point)
+  assert calls == [False]
+
+
+@pytest.mark.parametrize("status", [
+    "Preparing", "Charging", "SuspendedEV", "SuspendedEVSE", "Finishing",
+    "Faulted", "Unavailable", "Reserved", None,
+])
+async def test_no_toggle_unless_sure_no_cable_is_plugged_in(toggle_setup, status):
+  charge_point, calls = toggle_setup
+  charge_point.state.connectors[1] = {"status": status} if status else {}
+  await present(charge_point)
+  assert calls == []
+
+
+async def test_no_toggle_if_any_connector_or_none_is_known(toggle_setup):
+  charge_point, calls = toggle_setup
+  charge_point.state.connectors[2] = {"status": "Charging"}
+  await present(charge_point)
+  charge_point.state.connectors = {0: {"status": "Available"}}
+  await present(charge_point)
+  assert calls == []
+
+
+async def test_only_authorized_toggle_tags_toggle(toggle_setup):
+  charge_point, calls = toggle_setup
+  store.add_tag("plain")
+  store.add_tag("blocked", authorized=False, toggle_lock=True)
+  for id_tag in ("plain", "blocked", "unknown"):
+    await present(charge_point, id_tag)
+  assert calls == []
+
+
+async def test_automatic_lock_waits_after_a_toggle(toggle_setup):
+  charge_point, _ = toggle_setup
+  assert charge_point.should_auto_lock()
+  await present(charge_point)
+  assert not charge_point.should_auto_lock()
+  charge_point.last_toggle = -charger.TOGGLE_COOLDOWN
+  assert charge_point.should_auto_lock()
 
 
 @pytest.mark.parametrize("reported, expected", [
