@@ -15,6 +15,38 @@ Everything is stored in one SQLite file. Apart from a few Python packages, nothi
 - **Costs and export**: electricity prices that can change over time give every session and period a cost. Sessions and energy can be downloaded as CSV, and energy also as a PDF report.
 - **Settings page**: password, listening addresses and ports, and a charger's meter reading from before it was connected here.
 
+## Screenshots
+
+The web interface follows your device's light or dark theme, and so do these screenshots.
+
+**Chargers**
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/ElJeffe/simple-ocpp/main/docs/screenshots/chargers-dark.png">
+  <img src="https://raw.githubusercontent.com/ElJeffe/simple-ocpp/main/docs/screenshots/chargers-light.png" alt="Chargers page with one charger online and one charging, showing power, energy, cost and the cable lock">
+</picture>
+
+**Energy**
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/ElJeffe/simple-ocpp/main/docs/screenshots/energy-dark.png">
+  <img src="https://raw.githubusercontent.com/ElJeffe/simple-ocpp/main/docs/screenshots/energy-light.png" alt="Energy page with a monthly bar chart and a table of energy, price and cost per month">
+</picture>
+
+**Charge sessions**
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/ElJeffe/simple-ocpp/main/docs/screenshots/sessions-dark.png">
+  <img src="https://raw.githubusercontent.com/ElJeffe/simple-ocpp/main/docs/screenshots/sessions-light.png" alt="Sessions page listing charge sessions with charger, tag, duration, energy, cost and status">
+</picture>
+
+**RFID tags and groups**
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/ElJeffe/simple-ocpp/main/docs/screenshots/tags-dark.png">
+  <img src="https://raw.githubusercontent.com/ElJeffe/simple-ocpp/main/docs/screenshots/tags-light.png" alt="Tags page listing RFID cards with their group and status, and the tag groups">
+</picture>
+
 ## Requirements
 
 - Python 3.14
