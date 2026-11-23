@@ -23,7 +23,12 @@
 // Only go back to a page on this site, never to another site.
 function nextPage() {
   const next = new URLSearchParams(location.search).get("next") || "/";
-  return next.startsWith("/") && !next.startsWith("//") ? next : "/";
+  // Let the browser resolve it: it reads "/\site" and "/<tab>/site" as another site.
+  try {
+    const url = new URL(next, location.origin);
+    if (url.origin === location.origin) return url.pathname + url.search + url.hash;
+  } catch { /* not a valid address */ }
+  return "/";
 }
 
 (async () => {
