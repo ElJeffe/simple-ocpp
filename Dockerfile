@@ -24,8 +24,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ src/
 
 # Remove what the server never uses at runtime. The .pyc caches stay: without
-# them, Python recompiles everything at each start.
-RUN cd /usr/local/lib/python3.14 \
+# them, Python recompiles everything at each start. The standard library's
+# folder is asked from Python, because its name changes with every version.
+RUN cd "$(python -c 'import sysconfig; print(sysconfig.get_path("stdlib"))')" \
  && rm -rf site-packages/pip* ensurepip idlelib tkinter turtledemo pydoc_data test \
  && rm -f /usr/local/bin/pip* /usr/local/bin/idle* /usr/local/bin/pydoc*
 
