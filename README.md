@@ -49,7 +49,7 @@ The web interface follows your device's light or dark theme, and so do these scr
 
 ## Requirements
 
-- Python 3.14
+- Python 3.15
 - A charger that speaks OCPP 1.6-J (JSON over websocket)
 
 ## Installation
