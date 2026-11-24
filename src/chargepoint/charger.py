@@ -36,6 +36,7 @@ from .store import (
     now_iso,
     record_energy,
     registry,
+    resume_session,
     save_registry,
     session_connector,
     start_session,
@@ -260,6 +261,8 @@ class ChargePoint(cp):
       self.state.connectors.setdefault(connector_id, {}).update(readings)
     if "energy_wh" in readings:
       record_energy(self.id, connector_id, readings["energy_wh"], at=energy_at)
+    if (transaction_id := kwargs.get("transaction_id")) is not None:
+      self.resume(transaction_id)
     logging.log(TRACE, f"[{self.id}] Meter values connector {connector_id}: {readings}")
     self.touch()
     return call_result.MeterValues()
@@ -277,6 +280,11 @@ class ChargePoint(cp):
         and tag_toggles_lock(id_tag)):
       self.on_toggle_tag(id_tag)
     return call_result.Authorize(id_tag_info=info)
+
+  def resume(self, transaction_id: int) -> None:
+    """Reopens a session closed at a boot when the charger still reports it."""
+    if resume_session(self.id, transaction_id):
+      logging.warning(f"[{self.id}] Transaction {transaction_id} is still running; reopened it")
 
   @on(Action.start_transaction)
   async def on_start_transaction(
@@ -298,6 +306,7 @@ class ChargePoint(cp):
     )
     if transaction_id is not None:
       logging.info(f"[{self.id}] Repeated start of transaction {transaction_id}")
+      self.resume(transaction_id)
     else:
       if closed := close_open_sessions(self.id, timestamp, connector_id, meter_start):
         logging.warning(

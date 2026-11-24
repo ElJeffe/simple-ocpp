@@ -98,7 +98,29 @@ async def test_repeated_start_after_a_reboot_keeps_its_transaction(charge_point)
   store.close_open_sessions("CP_1", "2026-01-01T00:01:00Z")  # as a boot does
   again = await start(charge_point, "abc")
   assert again.transaction_id == first.transaction_id
-  assert len(store.list_sessions("CP_1")) == 1
+  assert [s["stopped_at"] for s in store.list_sessions("CP_1")] == [None]
+
+
+async def test_meter_values_reopen_a_transaction_that_survived_a_boot(charge_point, monkeypatch):
+  async def nothing():
+    pass
+
+  monkeypatch.setattr(charge_point, "apply_settings_after_boot", nothing)
+  store.add_tag("abc")
+  first = await start(charge_point, "abc")
+  await charge_point.on_boot_notification(charge_point_vendor="V", charge_point_model="M")
+  assert store.list_sessions()[0]["stop_reason"] == store.NO_STOP_RECEIVED
+  await charge_point.on_meter_values(
+      connector_id=1, transaction_id=first.transaction_id,
+      meter_value=[{"timestamp": "2026-01-01T01:00:00Z", "sampled_value": [{"value": "1500"}]}],
+  )
+  s = store.list_sessions()[0]
+  assert (s["stopped_at"], s["stop_reason"], s["energy_wh"]) == (None, None, None)
+  await charge_point.on_stop_transaction(
+      meter_stop=2000, timestamp="2026-01-01T02:00:00Z",
+      transaction_id=first.transaction_id, reason="EVDisconnected",
+  )
+  assert store.list_sessions()[0]["energy_wh"] == 2000
 
 
 async def test_transactions_are_stored_as_sessions(charge_point, monkeypatch):

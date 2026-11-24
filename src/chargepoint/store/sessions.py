@@ -81,6 +81,24 @@ def find_started_session(
   return row["id"] if row else None
 
 
+def resume_session(charger_id: str, transaction_id: int) -> bool:
+  """Reopens a session the server closed, because the charger still uses it.
+
+  Some chargers keep a transaction running through a boot, so a boot that
+  closed it was wrong. Only the newest session on its connector is reopened.
+  Returns whether a session was reopened.
+  """
+  with db() as conn:
+    cursor = conn.execute(
+        "UPDATE sessions SET meter_stop_wh = NULL, stopped_at = NULL, stop_reason = NULL"
+        " WHERE id = ? AND charger_id = ? AND stop_reason = ? AND NOT EXISTS ("
+        "  SELECT 1 FROM sessions AS newer WHERE newer.charger_id = sessions.charger_id"
+        "  AND newer.connector_id = sessions.connector_id AND newer.id > sessions.id)",
+        (transaction_id, charger_id, NO_STOP_RECEIVED),
+    )
+  return cursor.rowcount > 0
+
+
 def stop_session(
     charger_id: str, transaction_id: int, meter_stop_wh: int, stopped_at: str,
     reason: str | None, stop_id_tag: str | None = None,
