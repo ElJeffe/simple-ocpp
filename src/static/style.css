@@ -79,7 +79,7 @@ h2 { font-size: 18px; margin: 0; }
   display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 select { font: inherit; font-size: 14px; padding: 3px 6px; border-radius: 6px;
   border: 1px solid var(--border); background: var(--card); color: var(--text); }
-#tags, #groups, #sessions { max-width: 1100px; margin: 0 auto; padding: 12px 20px 40px; }
+#tags, #groups, #ignored, #sessions { max-width: 1100px; margin: 0 auto; padding: 12px 20px 40px; }
 table { width: 100%; border-collapse: collapse; background: var(--card);
   border: 1px solid var(--border); border-radius: 12px; overflow: hidden; font-size: 14px; }
 th, td { text-align: left; padding: 10px 14px; border-top: 1px solid var(--border); }

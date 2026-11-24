@@ -59,6 +59,12 @@ CREATE TABLE IF NOT EXISTS tags (
   parent_id_tag TEXT NOT NULL DEFAULT '',  -- groups.name, or ''
   toggle_lock INTEGER NOT NULL DEFAULT 0   -- presenting it toggles the cable lock
 );
+-- Unknown tags the user chose to ignore: presenting them is not shown.
+CREATE TABLE IF NOT EXISTS ignored_tags (
+  key    TEXT PRIMARY KEY,  -- tag_key(id_tag)
+  id_tag TEXT NOT NULL,
+  added  TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS groups (
   key   TEXT PRIMARY KEY,  -- tag_key(name)
   name  TEXT NOT NULL,

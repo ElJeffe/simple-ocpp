@@ -22,11 +22,13 @@ def isolated_state(tmp_path, monkeypatch):
   store.registry.clear()
   store.tags.clear()
   store.groups.clear()
+  store.ignored_tags.clear()
   charger.connected_chargers.clear()
   yield tmp_path
   store.registry.clear()
   store.tags.clear()
   store.groups.clear()
+  store.ignored_tags.clear()
   charger.connected_chargers.clear()
 
 

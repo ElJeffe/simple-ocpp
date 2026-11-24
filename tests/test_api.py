@@ -185,6 +185,35 @@ async def test_cable_lock_per_charger(client):
   assert (await client.post("/api/chargers/CP_1/lock")).status_code == 200
 
 
+async def test_ignore_unknown_tag(client):
+  store.get_state("A").last_rfid = "abc"
+  store.get_state("B").last_rfid = "other"
+  r = await client.post("/api/ignored-tags", json={"id_tag": " abc "})
+  assert r.status_code == 200 and r.json()["id_tag"] == "abc"
+  assert (await client.post("/api/ignored-tags", json={"id_tag": "ABC"})).status_code == 200
+  assert [t["id_tag"] for t in (await client.get("/api/ignored-tags")).json()] == ["abc"]
+  # It disappears from the charger where it was last presented.
+  rfids = {c["id"]: c["last_rfid"] for c in (await client.get("/api/chargers")).json()}
+  assert rfids == {"A": "", "B": "other"}
+  store.ignored_tags.clear()
+  store.load_tags()
+  assert store.tag_ignored("ABC")  # saved
+  assert (await client.delete("/api/ignored-tags/ABC")).status_code == 200
+  assert (await client.get("/api/ignored-tags")).json() == []
+  assert (await client.delete("/api/ignored-tags/abc")).status_code == 404
+
+
+async def test_registered_tags_cannot_be_ignored_and_registering_unignores(client, cache_clears):
+  await client.post("/api/tags", json={"id_tag": "a"})
+  assert (await client.post("/api/ignored-tags", json={"id_tag": "A"})).status_code == 400
+  await client.post("/api/ignored-tags", json={"id_tag": "b"})
+  await client.post("/api/tags", json={"id_tag": "B"})
+  assert (await client.get("/api/ignored-tags")).json() == []
+  store.ignored_tags.clear()
+  store.load_tags()
+  assert store.ignored_tags == {}
+
+
 async def test_tag_toggle_lock_setting(client, cache_clears):
   r = await client.post("/api/tags", json={"id_tag": "a"})
   assert r.json()["toggle_lock"] is False

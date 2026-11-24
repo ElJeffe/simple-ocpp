@@ -17,6 +17,7 @@ const STATUS_CLASS = {
 let tags = [];               // registered RFID tags from the server
 let anyCableLock = false;    // some charger has its cable lock turned on
 let groups = [];             // tag groups from the server
+let ignored = [];            // unknown tags the user chose to ignore
 const SESSION_LIMIT = 20;    // sessions per page
 const NO_STOP_RECEIVED = "NoStopReceived";  // closed by the server; see store.py
 const findTag = id => tags.find(t => t.id_tag.toUpperCase() === String(id).toUpperCase());
@@ -106,7 +107,9 @@ function rfidInfo(c) {
   if (!c.last_rfid) return `<span class="sub">none read yet</span>`;
   const t = findTag(c.last_rfid);
   const register = t ? "" :
-    ` <button class="small" data-tag-action="register" data-tag="${esc(c.last_rfid)}">Register</button>`;
+    ` <button class="small" data-tag-action="register" data-tag="${esc(c.last_rfid)}">Register</button>
+      <button class="small secondary" data-tag-action="ignore" data-tag="${esc(c.last_rfid)}"
+        title="Stop showing this tag when it is presented; it stays refused">Ignore</button>`;
   return `${tagLabel(t?.name, c.last_rfid)} ${tagPill(t)}${register}
     <div class="sub">${ago(c.last_rfid_at)}</div>`;
 }
@@ -138,6 +141,26 @@ function renderTags() {
         <button class="small ${t.authorized ? "secondary" : ""}" data-tag-action="${t.authorized ? "deauthorize" : "authorize"}"
           data-tag="${esc(t.id_tag)}">${t.authorized ? "Deauthorize" : "Authorize"}</button>
         <button class="small danger" data-tag-action="remove" data-tag="${esc(t.id_tag)}">Remove</button>
+      </td>
+    </tr>`).join("")}
+  </table>`);
+}
+
+function renderIgnored() {
+  const el = document.getElementById("ignored");
+  if (!ignored.length) {
+    setHtml(el, `<div class="empty" style="padding:30px 0">No ignored tags. Click <b>Ignore</b> next to an unknown tag on the <a href="/">Chargers</a> page to stop it from showing up there.</div>`);
+    return;
+  }
+  setHtml(el, `<p class="sub">These unknown tags are not shown when presented at a charger. They are still refused.</p>
+  <table>
+    <tr><th>Tag</th><th>Ignored since</th><th></th></tr>
+    ${ignored.map(t => `<tr>
+      <td><code class="rfid">${esc(t.id_tag)}</code></td>
+      <td>${esc(formatDateTime(new Date(t.added)))}</td>
+      <td class="actions">
+        <button class="small" data-tag-action="register" data-tag="${esc(t.id_tag)}">Register</button>
+        <button class="small secondary" data-tag-action="unignore" data-tag="${esc(t.id_tag)}">Stop ignoring</button>
       </td>
     </tr>`).join("")}
   </table>`);
@@ -351,16 +374,18 @@ async function refresh() {
     return res.json();
   };
   try {
-    const [chargers, tagList, groupList, sessions] = await Promise.all([
+    const [chargers, tagList, groupList, ignoredList, sessions] = await Promise.all([
       get("/api/chargers"), get("/api/tags", needTags), get("/api/groups", Boolean($("groups"))),
-      $("sessions") ? fetchSessions() : null,
+      get("/api/ignored-tags", Boolean($("ignored"))), $("sessions") ? fetchSessions() : null,
     ]);
     if (call !== refreshCount) return;  // a newer refresh has started
     if (tagList) tags = tagList;
     anyCableLock = chargers.some(c => c.cable_lock);
     if (groupList) groups = groupList;
+    if (ignoredList) ignored = ignoredList;
     if ($("tags")) renderTags();
     if ($("groups")) renderGroups();
+    if ($("ignored")) renderIgnored();
     if (sessions) {
       // A filter or deletion can leave us past the last page: go back.
       if (!sessions.list.length && sessionView.page > 0) { sessionView.page = 0; return refresh(); }
@@ -467,6 +492,11 @@ document.addEventListener("click", async e => {
       await api("POST", url, { name });
     } else if (tagAction === "authorize" || tagAction === "deauthorize") {
       await api("POST", url, { authorized: tagAction === "authorize" });
+    } else if (tagAction === "ignore") {
+      if (!confirm(`Ignore RFID tag ${tag}? It stays refused, but is no longer shown when presented. Ignored tags are listed on the Tags page.`)) return;
+      await api("POST", "/api/ignored-tags", { id_tag: tag });
+    } else if (tagAction === "unignore") {
+      await api("DELETE", `/api/ignored-tags/${encodeURIComponent(tag)}`);
     } else if (tagAction === "remove") {
       const label = existing?.name ? `${existing.name} (${tag})` : tag;
       if (!confirm(`Remove RFID tag ${label}? It will no longer be able to start charging.`)) return;
