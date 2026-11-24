@@ -63,7 +63,8 @@ button {
   border: 1px solid var(--accent); background: var(--accent); color: #fff; min-width: 96px;
 }
 button.secondary { background: transparent; color: var(--accent); }
-button:disabled { opacity: .5; cursor: progress; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+button:disabled[aria-busy="true"] { cursor: progress; }  /* a request is running */
 .rfid { font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace;
   background: var(--idle-bg); padding: 1px 6px; border-radius: 4px; }
 .toggle { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }

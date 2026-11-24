@@ -418,6 +418,30 @@ async def test_prices_api(client):
   assert (await client.get("/prices")).status_code == 200
 
 
+async def test_sessions_without_energy_can_be_hidden(client):
+  import csv, io
+  full = store.start_session("A", 1, "a", 100, "2026-11-01T10:00:00Z", True)
+  store.stop_session("A", full, 2100, "2026-11-01T11:00:00Z", "Local")
+  empty = store.start_session("A", 1, "a", 2100, "2026-11-02T10:00:00Z", True)
+  store.stop_session("A", empty, 2100, "2026-11-02T10:05:00Z", "Local")
+  refused = store.start_session("A", 1, "x", 2100, "2026-11-03T10:00:00Z", False)
+  store.stop_session("A", refused, 2100, "2026-11-03T10:00:05Z", "DeAuthorized")
+  falling = store.start_session("A", 1, "a", 2100, "2026-11-04T10:00:00Z", True)
+  store.stop_session("A", falling, 50, "2026-11-04T11:00:00Z", "Local")
+  running = store.start_session("A", 1, "a", 2100, "2026-11-05T10:00:00Z", True)
+
+  r = await client.get("/api/sessions")
+  assert r.headers["X-Total-Count"] == "5" and len(r.json()) == 5  # the default shows all
+  r = await client.get("/api/sessions", params={"hide_empty": "true"})
+  assert [s["id"] for s in r.json()] == [running, full]
+  assert r.headers["X-Total-Count"] == "2"
+  summary = (await client.get("/api/sessions/summary", params={"hide_empty": "true"})).json()
+  assert summary["count"] == 2 and summary["energy_wh"] == 2000
+  r = await client.get("/api/sessions.csv", params={"hide_empty": "true", "decimal": "."})
+  rows = list(csv.reader(io.StringIO(r.text.lstrip("\ufeff"))))
+  assert [int(row[0]) for row in rows[1:]] == [full, running]
+
+
 async def test_session_summary_and_csv(client):
   store.set_tariffs([{"valid_from": "2026-01-01", "price": 0.25}], "€")
   store.add_tag("card1", "Car")
