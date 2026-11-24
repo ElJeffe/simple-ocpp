@@ -28,6 +28,10 @@ class TagUpdate(Model):
   toggle_lock: bool | None = None
 
 
+class TagIgnore(Model):
+  id_tag: str = Field(min_length=1, max_length=20)
+
+
 class GroupCreate(Model):
   name: str = Field(min_length=1, max_length=20)  # sent as parentIdTag
 
@@ -71,6 +75,38 @@ async def delete_tag(id_tag: str) -> dict[str, bool]:
   except KeyError:
     raise HTTPException(404, "Unknown tag")
   clear_charger_caches()
+  return {"ok": True}
+
+
+@router.get("/api/ignored-tags")
+async def list_ignored_tags() -> list[store.IgnoredTagRecord]:
+  return store.sorted_ignored_tags()
+
+
+@router.post("/api/ignored-tags")
+async def ignore_tag(body: TagIgnore) -> store.IgnoredTagRecord:
+  """Ignores an unknown tag: presenting it is no longer shown at the charger."""
+  try:
+    record = store.ignore_tag(body.id_tag)
+  except KeyError:
+    raise HTTPException(400, "Tag is registered; remove it first")
+  # Stop showing it on chargers where it was the last tag presented.
+  key = store.tag_key(record["id_tag"])
+  changed = [s for s in store.registry.values() if store.tag_key(s.last_rfid) == key]
+  for state in changed:
+    state.last_rfid = ""
+    state.last_rfid_at = ""
+  if changed:
+    store.save_registry()
+  return record
+
+
+@router.delete("/api/ignored-tags/{id_tag}")
+async def unignore_tag(id_tag: str) -> dict[str, bool]:
+  try:
+    store.unignore_tag(id_tag)
+  except KeyError:
+    raise HTTPException(404, "Tag is not ignored")
   return {"ok": True}
 
 

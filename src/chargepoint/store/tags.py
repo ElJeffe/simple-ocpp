@@ -5,6 +5,7 @@
 through to the database, so authorizing a tag never touches the disk."""
 
 import logging
+import sqlite3
 from typing import TypedDict
 
 from ocpp.v16.enums import AuthorizationStatus
@@ -23,6 +24,11 @@ class TagRecord(TypedDict):
   toggle_lock: bool  # presenting it with no cable plugged in toggles the lock
 
 
+class IgnoredTagRecord(TypedDict):
+  id_tag: str  # spelling as first ignored
+  added: str  # ISO timestamp
+
+
 class GroupRecord(TypedDict):
   name: str  # sent as parentIdTag, so at most 20 characters
   added: str
@@ -37,10 +43,11 @@ def tag_key(id_tag: str | None) -> str:
 
 
 def load_tags() -> None:
-  """Loads tags and groups."""
+  """Loads tags, ignored tags and groups."""
   with db() as conn:
     group_rows = conn.execute("SELECT * FROM groups").fetchall()
     rows = conn.execute("SELECT * FROM tags").fetchall()
+    ignored_rows = conn.execute("SELECT * FROM ignored_tags").fetchall()
   for row in group_rows:
     groups[row["key"]] = {"name": row["name"], "added": row["added"]}
   for row in rows:
@@ -52,16 +59,22 @@ def load_tags() -> None:
         "parent_id_tag": row["parent_id_tag"],
         "toggle_lock": bool(row["toggle_lock"]),
     }
+  for row in ignored_rows:
+    ignored_tags[row["key"]] = {"id_tag": row["id_tag"], "added": row["added"]}
+
+
+def _write_tag(conn: sqlite3.Connection, tag: TagRecord) -> None:
+  conn.execute(
+      "INSERT OR REPLACE INTO tags (key, id_tag, name, authorized, added,"
+      " parent_id_tag, toggle_lock) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      (tag_key(tag["id_tag"]), tag["id_tag"], tag["name"], tag["authorized"],
+       tag["added"], tag["parent_id_tag"], tag["toggle_lock"]),
+  )
 
 
 def save_tag(tag: TagRecord) -> None:
   with db() as conn:
-    conn.execute(
-        "INSERT OR REPLACE INTO tags (key, id_tag, name, authorized, added,"
-        " parent_id_tag, toggle_lock) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (tag_key(tag["id_tag"]), tag["id_tag"], tag["name"], tag["authorized"],
-         tag["added"], tag["parent_id_tag"], tag["toggle_lock"]),
-    )
+    _write_tag(conn, tag)
 
 
 def tag_status(id_tag: str) -> AuthorizationStatus:
@@ -121,8 +134,11 @@ def add_tag(
       "parent_id_tag": group_name(parent_id_tag),
       "toggle_lock": toggle_lock,
   }
-  save_tag(tag)  # before caching, so a failed write leaves no phantom tag
-  tags[key] = tag
+  with db() as conn:  # one transaction: a registered tag is no longer ignored
+    conn.execute("DELETE FROM ignored_tags WHERE key = ?", (key,))
+    _write_tag(conn, tag)
+  tags[key] = tag  # after the write, so a failed write leaves no phantom tag
+  ignored_tags.pop(key, None)
   logging.info(f"Registered RFID {id_tag}: {tag}")
   return tag
 
@@ -163,6 +179,50 @@ def remove_tag(id_tag: str) -> TagRecord:
   del tags[key]
   logging.info(f"Removed RFID {tag['id_tag']}")
   return tag
+
+
+# Unknown tags the user does not want to see as presented, keyed by tag_key.
+ignored_tags: dict[str, IgnoredTagRecord] = {}
+
+
+def tag_ignored(id_tag: str | None) -> bool:
+  return tag_key(id_tag) in ignored_tags
+
+
+def sorted_ignored_tags() -> list[IgnoredTagRecord]:
+  return sorted(ignored_tags.values(), key=lambda t: t["id_tag"])
+
+
+def ignore_tag(id_tag: str) -> IgnoredTagRecord:
+  """Ignores an unknown tag. Raises KeyError if it is registered.
+
+  Ignoring one that is already ignored keeps it as it was.
+  """
+  key = tag_key(id_tag)
+  if key in tags:
+    raise KeyError(id_tag)
+  if key in ignored_tags:
+    return ignored_tags[key]
+  record: IgnoredTagRecord = {"id_tag": id_tag.strip(), "added": now_iso()}
+  with db() as conn:
+    conn.execute(
+        "INSERT INTO ignored_tags (key, id_tag, added) VALUES (?, ?, ?)",
+        (key, record["id_tag"], record["added"]),
+    )
+  ignored_tags[key] = record
+  logging.info(f"Ignoring RFID {record['id_tag']}")
+  return record
+
+
+def unignore_tag(id_tag: str) -> IgnoredTagRecord:
+  """Stops ignoring a tag. Raises KeyError if it is not ignored."""
+  key = tag_key(id_tag)
+  record = ignored_tags[key]
+  with db() as conn:
+    conn.execute("DELETE FROM ignored_tags WHERE key = ?", (key,))
+  del ignored_tags[key]
+  logging.info(f"No longer ignoring RFID {record['id_tag']}")
+  return record
 
 
 groups: dict[str, GroupRecord] = {}  # keyed by tag_key(name)

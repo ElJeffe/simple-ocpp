@@ -22,6 +22,17 @@ async def test_authorize_unknown_tag_is_rejected_and_recorded(charge_point):
   assert store.registry["CP_1"].last_rfid_at
 
 
+async def test_ignored_tag_is_rejected_but_not_recorded(charge_point):
+  await charge_point.on_authorize(id_tag="known")
+  store.ignore_tag("ABC")
+  result = await charge_point.on_authorize(id_tag="abc")
+  assert result.id_tag_info.status == AuthorizationStatus.invalid
+  await charge_point.on_stop_transaction(
+      meter_stop=10, timestamp="t", transaction_id=1, id_tag="abc"
+  )
+  assert store.registry["CP_1"].last_rfid == "known"
+
+
 async def test_authorize_registered_tag(charge_point):
   store.add_tag("ABC")
   result = await charge_point.on_authorize(id_tag="abc")

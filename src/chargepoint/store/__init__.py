@@ -86,20 +86,26 @@ from .tariffs import (
 )
 from .tags import (
     GroupRecord,
+    IgnoredTagRecord,
     TagRecord,
     add_group,
     add_tag,
     groups,
+    ignore_tag,
+    ignored_tags,
     load_tags,
     remove_group,
     remove_tag,
     sorted_groups,
+    sorted_ignored_tags,
     sorted_tags,
+    tag_ignored,
     tag_key,
     tag_parent,
     tag_status,
     tag_toggles_lock,
     tags,
+    unignore_tag,
     update_tag,
 )
 
@@ -120,5 +126,7 @@ __all__ = [
     "registry", "remove_group", "remove_tag", "resume_session", "save_registry", "saved_network_settings",
     "session_connector", "set_active_network", "set_initial_energy",
     "set_network_settings", "set_setting", "sorted_groups", "sorted_tags", "start_session",
+    "IgnoredTagRecord", "ignore_tag", "ignored_tags", "sorted_ignored_tags", "tag_ignored",
+    "unignore_tag",
     "stop_session", "tag_key", "tag_parent", "tag_status", "tag_toggles_lock", "tags", "update_tag",
 ]

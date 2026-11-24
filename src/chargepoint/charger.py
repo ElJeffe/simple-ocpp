@@ -43,6 +43,7 @@ from .store import (
     stop_session,
     tag_parent,
     tag_status,
+    tag_ignored,
     tag_toggles_lock,
 )
 
@@ -104,7 +105,8 @@ class ChargePoint(cp):
     self.state.last_seen = now_iso()
 
   def record_rfid(self, id_tag: str | None) -> None:
-    if not id_tag:
+    """Remembers the tag as the last one presented, unless it is ignored."""
+    if not id_tag or tag_ignored(id_tag):
       return
     self.state.last_rfid = id_tag
     self.state.last_rfid_at = now_iso()
