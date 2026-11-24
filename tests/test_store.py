@@ -681,3 +681,19 @@ def test_an_infinite_reading_already_stored_is_skipped():
   store.record_energy("CP_1", 1, 1500.0, today=date(2026, 1, 3))
   usage = {u["period"]: u["energy_wh"] for u in store.energy_usage("day")}
   assert usage == {"2026-01-01": 0, "2026-01-03": 500}
+
+
+def test_resume_reopens_only_the_newest_session_closed_by_the_server():
+  tid = store.start_session("A", 1, "a", 1000, "2026-11-01T10:00:00Z", True)
+  store.close_open_sessions("A", "2026-11-01T12:00:00Z")
+  assert store.resume_session("B", tid) is False  # another charger's ID
+  assert store.resume_session("A", tid) is True
+  s = store.list_sessions()[0]
+  assert (s["stopped_at"], s["meter_stop_wh"], s["stop_reason"]) == (None, None, None)
+  assert store.resume_session("A", tid) is False  # already open
+  store.stop_session("A", tid, 2000, "2026-11-01T13:00:00Z", "Local")
+  assert store.resume_session("A", tid) is False  # really stopped
+  old = store.start_session("A", 2, "a", 0, "2026-11-01T10:00:00Z", True)
+  store.close_open_sessions("A", "2026-11-01T14:00:00Z", 2, 500)
+  store.start_session("A", 2, "a", 500, "2026-11-01T14:00:00Z", True)
+  assert store.resume_session("A", old) is False  # a newer session took the connector
