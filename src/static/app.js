@@ -195,7 +195,8 @@ function sessionEnergy(s, chargers) {
 function renderSessions(sessions, chargers) {
   const el = document.getElementById("sessions");
   if (!sessions.length) {
-    const text = sessionView.preset === "all" ? "No charge sessions yet." : "No charge sessions in this period.";
+    const which = sessionView.showEmpty ? "charge sessions" : "charge sessions with energy";
+    const text = sessionView.preset === "all" ? `No ${which} yet.` : `No ${which} in this period.`;
     el.innerHTML = `<div class="empty" style="padding:30px 0">${text}</div>`;
     return;
   }
@@ -219,7 +220,8 @@ function renderSessions(sessions, chargers) {
 
 // --- Sessions: paging and period filter ---------------------------------------
 
-const sessionView = { page: 0, preset: "all", total: 0 };
+// showEmpty: also list ended sessions that used no energy, such as refused ones.
+const sessionView = { page: 0, preset: "all", total: 0, showEmpty: false };
 
 // [since, until) as local-midnight Dates for the chosen period; null = open.
 function sessionRange() {
@@ -247,6 +249,7 @@ async function fetchSessions() {
   const filter = new URLSearchParams();
   if (since) filter.set("since", since.toISOString());
   if (until) filter.set("until", until.toISOString());
+  if (!sessionView.showEmpty) filter.set("hide_empty", "true");
   const page = new URLSearchParams({ limit: SESSION_LIMIT, offset: sessionView.page * SESSION_LIMIT });
   for (const [k, v] of filter) page.set(k, v);
   const [res, summary] = await Promise.all([fetch(`/api/sessions?${page}`), api("GET", `/api/sessions/summary?${filter}`)]);
@@ -283,6 +286,7 @@ function setUpSessions() {
   });
   $("session-from").addEventListener("change", changed);
   $("session-to").addEventListener("change", changed);
+  $("session-show-empty").addEventListener("change", e => { sessionView.showEmpty = e.target.checked; changed(); });
   $("session-prev").addEventListener("click", () => { sessionView.page--; refresh(); });
   $("session-next").addEventListener("click", () => { sessionView.page++; refresh(); });
 }
@@ -317,7 +321,7 @@ function card(c) {
         ${locked ? LOCK_ICON : UNLOCK_ICON}${esc(label)}
       </span>
       <button class="${action === "lock" ? "" : "secondary"}" data-id="${esc(c.id)}"
-        data-action="${action}" ${busy ? "disabled" : ""}>
+        data-action="${action}" ${busy ? 'disabled aria-busy="true"' : ""}>
         ${busy ? "Working…" : action === "lock" ? "Lock" : "Unlock"}
       </button>
     </div>

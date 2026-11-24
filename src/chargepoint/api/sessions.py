@@ -21,6 +21,7 @@ def check_zones(since: datetime | None, until: datetime | None) -> None:
 
 SINCE = Query(None, description="Started at or after (with time zone)")
 UNTIL = Query(None, description="Started before (with time zone)")
+HIDE_EMPTY = Query(False, description="Leave out ended sessions that used no energy")
 
 
 @router.get("/api/sessions")
@@ -31,11 +32,14 @@ async def list_sessions(
     offset: int = Query(0, ge=0),
     since: datetime | None = SINCE,
     until: datetime | None = UNTIL,
+    hide_empty: bool = HIDE_EMPTY,
 ) -> list[store.SessionRecord]:
   """Newest sessions first. X-Total-Count gives the number matching the filter."""
   check_zones(since, until)
-  response.headers["X-Total-Count"] = str(store.count_sessions(charger_id, since, until))
-  return store.list_sessions(charger_id, limit, offset, since, until)
+  response.headers["X-Total-Count"] = str(
+      store.count_sessions(charger_id, since, until, hide_empty)
+  )
+  return store.list_sessions(charger_id, limit, offset, since, until, hide_empty)
 
 
 class Summary(store.SessionSummary):
@@ -47,10 +51,11 @@ async def sessions_summary(
     charger_id: str | None = None,
     since: datetime | None = SINCE,
     until: datetime | None = UNTIL,
+    hide_empty: bool = HIDE_EMPTY,
 ) -> Summary:
   """Number, energy and cost of the sessions matching the filter."""
   check_zones(since, until)
-  return {**store.session_summary(charger_id, since, until), "currency": store.currency()}
+  return {**store.session_summary(charger_id, since, until, hide_empty), "currency": store.currency()}
 
 
 @router.get("/api/sessions.csv")
@@ -59,11 +64,12 @@ async def sessions_csv(
     since: datetime | None = SINCE,
     until: datetime | None = UNTIL,
     decimal: CsvDecimal | None = DECIMAL,
+    hide_empty: bool = HIDE_EMPTY,
 ) -> Response:
   """All sessions matching the filter, oldest first, as a CSV download.
   Times are in the server's time zone."""
   check_zones(since, until)
-  sessions = reversed(store.list_sessions(charger_id, None, 0, since, until))
+  sessions = reversed(store.list_sessions(charger_id, None, 0, since, until, hide_empty))
   currency = store.currency()
   separator = csv_decimal(decimal)
 

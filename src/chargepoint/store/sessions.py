@@ -97,9 +97,13 @@ def stop_session(
 
 
 def session_filter(
-    charger_id: str | None, since: datetime | None, until: datetime | None
+    charger_id: str | None, since: datetime | None, until: datetime | None,
+    hide_empty: bool = False,
 ) -> tuple[str, list[object]]:
   """A WHERE clause (or "") selecting sessions by charger and start time.
+
+  hide_empty leaves out ended sessions that used no energy, such as refused
+  ones. Sessions still in progress always count.
 
   Start times are the charger's own ISO timestamps, which may use "Z" or an
   offset, so they are compared with julianday() rather than as strings.
@@ -115,14 +119,16 @@ def session_filter(
   if until is not None:
     conditions.append("julianday(started_at) < julianday(?)")
     params.append(until.isoformat())
+  if hide_empty:  # matches session_record: a falling meter counts as zero
+    conditions.append("(meter_stop_wh IS NULL OR meter_stop_wh > meter_start_wh)")
   return (" WHERE " + " AND ".join(conditions) if conditions else ""), params
 
 
 def count_sessions(
     charger_id: str | None = None, since: datetime | None = None,
-    until: datetime | None = None,
+    until: datetime | None = None, hide_empty: bool = False,
 ) -> int:
-  where, params = session_filter(charger_id, since, until)
+  where, params = session_filter(charger_id, since, until, hide_empty)
   with db() as conn:
     return conn.execute(f"SELECT COUNT(*) FROM sessions{where}", params).fetchone()[0]
 
@@ -130,12 +136,13 @@ def count_sessions(
 def list_sessions(
     charger_id: str | None = None, limit: int | None = 100, offset: int = 0,
     since: datetime | None = None, until: datetime | None = None,
+    hide_empty: bool = False,
 ) -> list[SessionRecord]:
   """Newest sessions first; `since` is inclusive, `until` exclusive.
 
   limit=None returns all of them (for exports and summaries).
   """
-  where, params = session_filter(charger_id, since, until)
+  where, params = session_filter(charger_id, since, until, hide_empty)
   query = f"SELECT * FROM sessions{where} ORDER BY id DESC LIMIT ? OFFSET ?"
   params += [-1 if limit is None else limit, offset]
   with db() as conn:
@@ -203,10 +210,10 @@ def open_sessions() -> list[SessionRecord]:
 
 def session_summary(
     charger_id: str | None = None, since: datetime | None = None,
-    until: datetime | None = None,
+    until: datetime | None = None, hide_empty: bool = False,
 ) -> SessionSummary:
   """Number of sessions, their energy and their cost, for a filter."""
-  found = list_sessions(charger_id, None, 0, since, until)
+  found = list_sessions(charger_id, None, 0, since, until, hide_empty)
   costs = [s["cost"] for s in found if s["cost"] is not None]
   return {
       "count": len(found),
