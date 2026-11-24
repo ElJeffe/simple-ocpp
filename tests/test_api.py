@@ -255,7 +255,7 @@ async def test_pages_and_shared_files(client):
   for path, text in (("/tags", "<title>Tags</title>"), ("/energy", "<title>Energy</title>"),
                      ("/sessions", "<title>Sessions</title>"), ("/settings", "<title>Settings</title>"),
                      ("/style.css", "--accent"), ("/common.js", "function renderNav"),
-                     ("/app.js", "async function refresh")):
+                     ("/app.js", "async function refresh"), ("/favicon.svg", "<svg")):
     r = await client.get(path)
     assert r.status_code == 200 and text in r.text, path
 

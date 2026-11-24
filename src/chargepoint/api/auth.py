@@ -27,7 +27,7 @@ MAX_PASSWORD_WAIT = 5.0  # seconds; with a longer queue, attempts are refused
 _next_password_check = 0.0  # time.monotonic() of the next free turn
 
 # Reachable without logging in: the login page, what it needs, and the login API.
-PUBLIC_PATHS = {"/login", "/style.css", "/common.js", "/api/login", "/api/auth"}
+PUBLIC_PATHS = {"/login", "/style.css", "/common.js", "/favicon.svg", "/api/login", "/api/auth"}
 
 
 def is_cross_site(request: Request) -> bool:

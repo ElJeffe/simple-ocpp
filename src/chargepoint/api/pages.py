@@ -33,6 +33,7 @@ STATIC_PAGES = {
     "/style.css": "style.css",
     "/common.js": "common.js",
     "/app.js": "app.js",
+    "/favicon.svg": "favicon.svg",
 }
 
 
