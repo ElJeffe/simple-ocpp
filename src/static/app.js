@@ -106,12 +106,15 @@ function tagPill(t) {
 function rfidInfo(c) {
   if (!c.last_rfid) return `<span class="sub">none read yet</span>`;
   const t = findTag(c.last_rfid);
-  const register = t ? "" :
-    ` <button class="small" data-tag-action="register" data-tag="${esc(c.last_rfid)}">Register</button>
+  // What was read and when stay together; the actions on it come after, on
+  // their own line, so they read as a separate group.
+  const actions = t ? "" : `<div class="rfid-actions">
+      <button class="small" data-tag-action="register" data-tag="${esc(c.last_rfid)}">Register</button>
       <button class="small secondary" data-tag-action="ignore" data-tag="${esc(c.last_rfid)}"
-        title="Stop showing this tag when it is presented; it stays refused">Ignore</button>`;
-  return `${tagLabel(t?.name, c.last_rfid)} ${tagPill(t)}${register}
-    <div class="sub">${ago(c.last_rfid_at)}</div>`;
+        title="Stop showing this tag when it is presented; it stays refused">Ignore</button>
+    </div>`;
+  return `${tagLabel(t?.name, c.last_rfid)} ${tagPill(t)}
+    <div class="sub">${ago(c.last_rfid_at)}</div>${actions}`;
 }
 
 function groupSelect(t) {
